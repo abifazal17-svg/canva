@@ -8,8 +8,8 @@ const { v4: uuidv4 } = require('uuid');
 const mysql = require('mysql2/promise');
 
 const app = express();
-const PORT = 3000;
-const JWT_SECRET = 'canva-clone-super-secret-key-2024';
+const PORT = process.env.PORT || 3000;
+const JWT_SECRET = process.env.JWT_SECRET || 'canva-clone-super-secret-key-2024';
 
 // ─── Setup Directories ───────────────────────────────────────────────────────
 const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
@@ -22,16 +22,16 @@ const IMAGES_DIR = path.join(__dirname, 'public', 'uploads', 'images');
 
 // ─── Database Setup (MySQL / phpMyAdmin) ──────────────────────────────────────
 const db = mysql.createPool({
-  host: 'db.fr-roub1.bengt.wasmernet.com',
-  user: 'user_a7d99fd8',      // Sesuaikan username database Anda (default XAMPP: root)
-  password: 'pw_5fZnvLKFBu19OGf6G6nhM6qzyDKk01T6',      // Sesuaikan password database Anda (default XAMPP: kosong)
-  database: 'db_39444a4c',
+  host: process.env.DB_HOST || 'db.fr-roub1.bengt.wasmernet.com',
+  user: process.env.DB_USER || 'user_a7d99fd8',
+  password: process.env.DB_PASSWORD || 'pw_5fZnvLKFBu19OGf6G6nhM6qzyDKk01T6',
+  database: process.env.DB_NAME || 'db_39444a4c',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
 });
 
-// Seed Admin User
+// Seed Admin User & Check DB Connection
 async function initDB() {
   try {
     const [rows] = await db.execute('SELECT id FROM users WHERE role = ?', ['admin']);
@@ -42,6 +42,8 @@ async function initDB() {
         [uuidv4(), 'admin@canva.com', 'admin', hashedPw, 'admin']
       );
       console.log('✅ Admin seeded: admin@canva.com / admin123');
+    } else {
+      console.log('✅ Database connected & initialized successfully.');
     }
   } catch (err) {
     console.error('❌ Error initializing DB:', err.message);
@@ -373,8 +375,8 @@ app.get('/api/admin/users/search', adminMiddleware, async (req, res) => {
   }
 });
 
-// ─── SPA Fallback ─────────────────────────────────────────────────────────────
-app.get('*', (req, res) => {
+// ─── SPA Fallback (Sintaks kompatibel Express 5) ─────────────────────────────
+app.get('(.*)', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
