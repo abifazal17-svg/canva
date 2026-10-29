@@ -1,0 +1,787 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DesignCraft — Photo Text Editor</title>
+  <meta name="description"
+    content="Platform desain foto profesional dengan editor teks canggih. Buat, kelola, dan bagikan desain dengan mudah.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
+    rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+  <!-- ─── AUTH PAGES ─────────────────────────────────────────────────────────── -->
+  <div id="page-auth" class="page active">
+    <div class="auth-bg">
+      <div class="auth-orb orb-1"></div>
+      <div class="auth-orb orb-2"></div>
+      <div class="auth-orb orb-3"></div>
+    </div>
+    <div class="auth-container">
+      <div class="auth-brand">
+        <div class="brand-logo">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="url(#brandGrad)" />
+            <path d="M8 24V12l8-4 8 4v12l-8 4-8-4z" fill="white" opacity="0.9" />
+            <path d="M16 8l8 4-8 4-8-4 8-4z" fill="white" />
+            <defs>
+              <linearGradient id="brandGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#6366f1" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <span class="brand-name">DesignCraft</span>
+      </div>
+
+      <div class="auth-card">
+        <!-- Login Form -->
+        <div id="login-form">
+          <h1 class="auth-title">Selamat Datang</h1>
+          <p class="auth-subtitle">Masuk ke akun Anda untuk mulai berkreasi</p>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="login-email" placeholder="email@contoh.com" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <div class="input-pw-wrap">
+              <input type="password" id="login-password" placeholder="••••••••" class="form-input">
+              <button class="toggle-pw" onclick="togglePw('login-password', this)">👁</button>
+            </div>
+          </div>
+          <div id="login-error" class="form-error hidden"></div>
+          <button class="btn-primary btn-full" onclick="doLogin()">
+            <span>Masuk</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+          <p class="auth-switch">Belum punya akun? <a href="#" onclick="showRegister()">Daftar sekarang</a></p>
+        </div>
+
+        <!-- Register Form -->
+        <div id="register-form" class="hidden">
+          <h1 class="auth-title">Buat Akun</h1>
+          <p class="auth-subtitle">Bergabung dan mulai berkolaborasi</p>
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="reg-username" placeholder="username_anda" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>Email</label>
+            <input type="email" id="reg-email" placeholder="email@contoh.com" class="form-input">
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <div class="input-pw-wrap">
+              <input type="password" id="reg-password" placeholder="Min. 6 karakter" class="form-input">
+              <button class="toggle-pw" onclick="togglePw('reg-password', this)">👁</button>
+            </div>
+          </div>
+          <div id="reg-error" class="form-error hidden"></div>
+          <button class="btn-primary btn-full" onclick="doRegister()">
+            <span>Buat Akun</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M5 12h14M12 5l7 7-7 7" />
+            </svg>
+          </button>
+          <p class="auth-switch">Sudah punya akun? <a href="#" onclick="showLogin()">Masuk di sini</a></p>
+        </div>
+      </div>
+
+      <!--<div class="auth-demo-hint">
+      <span>Demo Admin:</span> <code>admin@canva.com</code> / <code>admin123</code>
+    </div>-->
+    </div>
+  </div>
+
+  <!-- ─── ADMIN DASHBOARD ────────────────────────────────────────────────────── -->
+  <div id="page-admin-dashboard" class="page hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="url(#sideGrad)" />
+            <path d="M8 24V12l8-4 8 4v12l-8 4-8-4z" fill="white" opacity="0.9" />
+            <path d="M16 8l8 4-8 4-8-4 8-4z" fill="white" />
+            <defs>
+              <linearGradient id="sideGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#6366f1" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <span>DesignCraft</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active" id="nav-designs" onclick="adminShowDesigns()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+          </svg>
+          Dashboard
+        </a>
+        <a href="#" class="nav-item" id="nav-fonts" onclick="adminShowFonts()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="4 7 4 4 20 4 20 7" />
+            <line x1="9" y1="20" x2="15" y2="20" />
+            <line x1="12" y1="4" x2="12" y2="20" />
+          </svg>
+          Font Manager
+        </a>
+      </nav>
+      <div class="sidebar-user">
+        <div class="user-avatar" id="sidebar-avatar">A</div>
+        <div class="user-info">
+          <span class="user-name" id="sidebar-username">Admin</span>
+          <span class="user-role">Administrator</span>
+        </div>
+        <button class="btn-logout" onclick="doLogout()" title="Keluar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <!-- Designs Section -->
+      <section id="admin-designs-section">
+        <div class="page-header">
+          <div>
+            <h2 class="page-title">Dashboard Design</h2>
+            <p class="page-desc">Kelola semua master design Anda</p>
+          </div>
+          <button class="btn-primary" onclick="openCreateDesignModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Buat Design Baru
+          </button>
+        </div>
+        <div id="admin-designs-grid" class="designs-grid">
+          <div class="loading-state">
+            <div class="spinner"></div>
+            <span>Memuat design...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Fonts Section -->
+      <section id="admin-fonts-section" class="hidden">
+        <div class="page-header">
+          <div>
+            <h2 class="page-title">Font Manager</h2>
+            <p class="page-desc">Kelola font kustom untuk desain</p>
+          </div>
+          <button class="btn-primary" onclick="openAddFontModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="12" y1="5" x2="12" y2="19" />
+              <line x1="5" y1="12" x2="19" y2="12" />
+            </svg>
+            Tambah Font
+          </button>
+        </div>
+        <div id="fonts-grid" class="fonts-grid">
+          <div class="loading-state">
+            <div class="spinner"></div><span>Memuat font...</span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- ─── CLIENT DASHBOARD ──────────────────────────────────────────────────── -->
+  <div id="page-client-dashboard" class="page hidden">
+    <aside class="sidebar">
+      <div class="sidebar-brand">
+        <div class="brand-logo">
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <rect width="32" height="32" rx="8" fill="url(#sideGrad2)" />
+            <path d="M8 24V12l8-4 8 4v12l-8 4-8-4z" fill="white" opacity="0.9" />
+            <path d="M16 8l8 4-8 4-8-4 8-4z" fill="white" />
+            <defs>
+              <linearGradient id="sideGrad2" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#6366f1" />
+                <stop offset="100%" stop-color="#8b5cf6" />
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <span>DesignCraft</span>
+      </div>
+      <nav class="sidebar-nav">
+        <a href="#" class="nav-item active">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="7" height="7" />
+            <rect x="14" y="3" width="7" height="7" />
+            <rect x="14" y="14" width="7" height="7" />
+            <rect x="3" y="14" width="7" height="7" />
+          </svg>
+          Design Saya
+        </a>
+      </nav>
+      <div class="sidebar-user">
+        <div class="user-avatar user-avatar-client" id="client-sidebar-avatar">C</div>
+        <div class="user-info">
+          <span class="user-name" id="client-sidebar-username">Client</span>
+          <span class="user-role">Client</span>
+        </div>
+        <button class="btn-logout" onclick="doLogout()" title="Keluar">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+            <polyline points="16 17 21 12 16 7" />
+            <line x1="21" y1="12" x2="9" y2="12" />
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <div class="page-header">
+        <div>
+          <h2 class="page-title">Design Saya</h2>
+          <p class="page-desc">Design yang telah dibagikan admin kepada Anda</p>
+        </div>
+      </div>
+      <div id="client-designs-grid" class="designs-grid">
+        <div class="loading-state">
+          <div class="spinner"></div><span>Memuat design...</span>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- ─── EDITOR PAGE ──────────────────────────────────────────────────────── -->
+  <div id="page-editor" class="page hidden">
+    <div class="editor-layout">
+      <!-- Editor Topbar -->
+      <header class="editor-topbar">
+        <div class="editor-topbar-left">
+          <button class="btn-icon" onclick="goBackFromEditor()" title="Kembali">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div class="editor-design-info">
+            <input type="text" id="editor-design-name" class="editor-name-input" placeholder="Nama Design...">
+          </div>
+        </div>
+        <div class="editor-topbar-center">
+          <div class="editor-mode-badge" id="editor-mode-badge">Mode Admin</div>
+          <div class="zoom-controls" id="admin-zoom-controls">
+            <button class="zoom-btn" onclick="adjustAdminZoom(-0.15)" title="Zoom Out (Ctrl+−)">−</button>
+            <span class="zoom-display" id="admin-zoom-display" onclick="resetAdminZoom()"
+              title="Reset Zoom (Ctrl+0)">100%</span>
+            <button class="zoom-btn" onclick="adjustAdminZoom(0.15)" title="Zoom In (Ctrl+=)">+</button>
+          </div>
+        </div>
+        <div class="editor-topbar-right">
+          <button class="btn-secondary" onclick="editorUndo()" title="Undo" id="btn-undo">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M3 7v6h6" />
+              <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
+            </svg>
+          </button>
+          <button class="btn-primary" id="btn-save-design" onclick="saveDesign()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            Simpan
+          </button>
+          <button class="btn-share" id="btn-share-design" onclick="openShareModal()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="18" cy="5" r="3" />
+              <circle cx="6" cy="12" r="3" />
+              <circle cx="18" cy="19" r="3" />
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49" />
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49" />
+            </svg>
+            Share
+          </button>
+        </div>
+      </header>
+
+      <!-- Editor Body -->
+      <div class="editor-body">
+        <!-- Left Toolbar -->
+        <aside class="editor-sidebar-left">
+          <div class="tool-section">
+            <div class="tool-section-title">Gambar</div>
+            <button class="tool-btn" id="btn-upload-image" onclick="triggerImageUpload()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" />
+                <circle cx="8.5" cy="8.5" r="1.5" />
+                <polyline points="21 15 16 10 5 21" />
+              </svg>
+              Upload Gambar
+            </button>
+            <input type="file" id="image-upload-input" accept="image/*" class="hidden"
+              onchange="handleImageUpload(event)">
+          </div>
+          <div class="tool-section" id="admin-text-tools">
+            <div class="tool-section-title">Teks</div>
+            <button class="tool-btn" onclick="addText()">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="4 7 4 4 20 4 20 7" />
+                <line x1="9" y1="20" x2="15" y2="20" />
+                <line x1="12" y1="4" x2="12" y2="20" />
+              </svg>
+              Tambah Teks
+            </button>
+          </div>
+          <div class="tool-section">
+            <div class="tool-section-title">Kanvas</div>
+            <div class="canvas-size-inputs">
+              <div class="size-input-group" id="canvas-size-group">
+                <label>Lebar</label>
+                <input type="number" id="canvas-width-input" value="800" min="100" max="3000" class="size-input">
+                <label>Tinggi</label>
+                <input type="number" id="canvas-height-input" value="600" min="100" max="3000" class="size-input">
+                <button class="tool-btn-sm" onclick="applyCanvasSize()">Terapkan</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+
+        <!-- Canvas Area -->
+        <div class="editor-canvas-wrapper">
+          <div class="canvas-outer" id="canvas-outer">
+            <div class="canvas-container" id="canvas-container">
+              <canvas id="main-canvas"></canvas>
+              <div id="text-overlay" class="text-overlay"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Right Properties Panel -->
+        <aside class="editor-sidebar-right" id="properties-panel">
+          <div class="panel-header">
+            <span>Properti Teks</span>
+            <button class="btn-icon btn-sm" onclick="deleteSelectedText()" title="Hapus teks ini" id="btn-delete-text">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" />
+              </svg>
+            </button>
+          </div>
+
+          <div id="no-selection-msg" class="no-selection">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              opacity="0.3">
+              <polyline points="4 7 4 4 20 4 20 7" />
+              <line x1="9" y1="20" x2="15" y2="20" />
+              <line x1="12" y1="4" x2="12" y2="20" />
+            </svg>
+            <p>Klik teks di kanvas untuk edit</p>
+          </div>
+
+          <div id="text-properties" class="hidden">
+            <!-- Content -->
+            <div class="prop-group">
+              <label class="prop-label">Konten Teks</label>
+              <textarea id="prop-content" class="prop-textarea" rows="3"
+                oninput="updateSelectedText('content', this.value)"></textarea>
+            </div>
+
+            <!-- Form Label (Admin only) -->
+            <div class="prop-group" id="prop-form-group">
+              <label class="prop-label">Nama Form Field</label>
+              <input type="text" id="prop-form-name" class="prop-input" placeholder="cth: jam, nama, tanggal..."
+                oninput="updateSelectedText('formName', this.value)">
+              <span class="prop-hint">Beri nama agar client dapat mengisi field ini</span>
+            </div>
+
+            <!-- Font -->
+            <div class="prop-group">
+              <label class="prop-label">Font</label>
+              <div class="font-selector-wrap">
+                <select id="prop-font" class="prop-select" onchange="updateSelectedText('fontFamily', this.value)">
+                  <optgroup label="System Fonts">
+                    <option value="Inter">Inter</option>
+                    <option value="Arial">Arial</option>
+                    <option value="Georgia">Georgia</option>
+                    <option value="Times New Roman">Times New Roman</option>
+                    <option value="Courier New">Courier New</option>
+                    <option value="Verdana">Verdana</option>
+                  </optgroup>
+                  <optgroup label="Google Fonts" id="google-fonts-group"></optgroup>
+                  <optgroup label="Font Kustom" id="custom-fonts-group"></optgroup>
+                </select>
+              </div>
+              <div id="font-preview" class="font-preview">Aa Bb Cc 123</div>
+            </div>
+
+            <!-- Font Size -->
+            <div class="prop-group">
+              <label class="prop-label">Ukuran <span id="font-size-val">24</span>px</label>
+              <input type="range" id="prop-font-size" min="8" max="200" value="24" class="prop-range"
+                oninput="updateFontSize(this.value)">
+            </div>
+
+            <!-- Font Style -->
+            <div class="prop-group">
+              <label class="prop-label">Gaya</label>
+              <div class="style-btns">
+                <button class="style-btn" id="btn-bold" onclick="toggleStyle('bold')" title="Bold"><b>B</b></button>
+                <button class="style-btn" id="btn-italic" onclick="toggleStyle('italic')"
+                  title="Italic"><i>I</i></button>
+                <button class="style-btn" id="btn-underline" onclick="toggleStyle('underline')"
+                  title="Underline"><u>U</u></button>
+              </div>
+            </div>
+
+            <!-- Color -->
+            <div class="prop-group">
+              <label class="prop-label">Warna Teks</label>
+              <div class="color-row">
+                <input type="color" id="prop-color" value="#ffffff" class="prop-color"
+                  oninput="updateSelectedText('color', this.value)">
+                <input type="text" id="prop-color-hex" class="prop-input prop-color-hex" value="#ffffff"
+                  oninput="syncColorFromHex(this.value)">
+              </div>
+            </div>
+
+            <!-- Alignment -->
+            <div class="prop-group">
+              <label class="prop-label">Rata Teks</label>
+              <div class="style-btns">
+                <button class="style-btn" id="btn-align-left" onclick="updateSelectedText('align', 'left')"
+                  title="Kiri">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="3" y1="12" x2="15" y2="12" />
+                    <line x1="3" y1="18" x2="18" y2="18" />
+                  </svg>
+                </button>
+                <button class="style-btn active" id="btn-align-center" onclick="updateSelectedText('align', 'center')"
+                  title="Tengah">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="6" y1="12" x2="18" y2="12" />
+                    <line x1="4" y1="18" x2="20" y2="18" />
+                  </svg>
+                </button>
+                <button class="style-btn" id="btn-align-right" onclick="updateSelectedText('align', 'right')"
+                  title="Kanan">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="6" x2="21" y2="6" />
+                    <line x1="9" y1="12" x2="21" y2="12" />
+                    <line x1="6" y1="18" x2="21" y2="18" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- Position -->
+            <div class="prop-group">
+              <label class="prop-label">Posisi</label>
+              <div class="position-inputs">
+                <div class="pos-input-group">
+                  <label>X</label>
+                  <input type="number" id="prop-x" class="prop-input-sm"
+                    oninput="updateSelectedText('x', parseFloat(this.value))">
+                </div>
+                <div class="pos-input-group">
+                  <label>Y</label>
+                  <input type="number" id="prop-y" class="prop-input-sm"
+                    oninput="updateSelectedText('y', parseFloat(this.value))">
+                </div>
+              </div>
+            </div>
+
+            <!-- Opacity -->
+            <div class="prop-group">
+              <label class="prop-label">Opasitas <span id="opacity-val">100</span>%</label>
+              <input type="range" id="prop-opacity" min="0" max="100" value="100" class="prop-range"
+                oninput="updateOpacity(this.value)">
+            </div>
+
+            <!-- Text Shadow -->
+            <div class="prop-group">
+              <label class="prop-label">Bayangan Teks</label>
+              <div class="shadow-controls">
+                <label class="toggle-label">
+                  <input type="checkbox" id="prop-shadow" onchange="updateSelectedText('shadow', this.checked)">
+                  <span class="toggle-slider"></span>
+                  Aktifkan Bayangan
+                </label>
+                <div class="shadow-detail" id="shadow-detail">
+                  <div class="shadow-row">
+                    <label>Blur</label>
+                    <input type="range" id="prop-shadow-blur" min="0" max="30" value="4" class="prop-range-sm"
+                      oninput="updateSelectedText('shadowBlur', parseInt(this.value))">
+                  </div>
+                  <div class="shadow-row">
+                    <label>Warna</label>
+                    <input type="color" id="prop-shadow-color" value="#000000" class="prop-color-sm"
+                      oninput="updateSelectedText('shadowColor', this.value)">
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── CLIENT FORM EDITOR ───────────────────────────────────────────────── -->
+  <div id="page-client-editor" class="page hidden">
+    <div class="editor-layout">
+      <header class="editor-topbar">
+        <div class="editor-topbar-left">
+          <button class="btn-icon" onclick="goBackFromClientEditor()" title="Kembali">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" />
+            </svg>
+          </button>
+          <div class="editor-design-info">
+            <span id="client-design-name" class="editor-name-readonly"></span>
+          </div>
+        </div>
+        <div class="editor-topbar-center">
+          <div class="editor-mode-badge mode-client">Mode Client</div>
+          <div class="zoom-controls" id="client-zoom-controls">
+            <button class="zoom-btn" onclick="adjustClientZoom(-0.15)" title="Zoom Out">−</button>
+            <span class="zoom-display" id="client-zoom-display" onclick="resetClientZoom()"
+              title="Reset Zoom">100%</span>
+            <button class="zoom-btn" onclick="adjustClientZoom(0.15)" title="Zoom In">+</button>
+          </div>
+        </div>
+        <div class="editor-topbar-right">
+          <button class="btn-primary" onclick="saveClientForm()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
+              <polyline points="17 21 17 13 7 13 7 21" />
+              <polyline points="7 3 7 8 15 8" />
+            </svg>
+            Simpan
+          </button>
+          <button class="btn-secondary btn-dl" onclick="downloadClientDesign()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+              <polyline points="7 10 12 15 17 10" />
+              <line x1="12" y1="15" x2="12" y2="3" />
+            </svg>
+            <span class="dl-label">Download</span>
+          </button>
+        </div>
+      </header>
+
+      <div class="editor-body" id="client-editor-body">
+
+        <!-- Canvas Area — mobile: order 1 (top), desktop: order 2 (middle) -->
+        <div class="editor-canvas-wrapper" id="client-canvas-wrapper">
+          <div class="canvas-outer" id="client-canvas-outer">
+            <div class="canvas-container" id="client-canvas-container">
+              <canvas id="client-canvas"></canvas>
+            </div>
+          </div>
+          <!-- Tap hint: shown only on mobile -->
+          <div class="canvas-tap-hint" id="canvas-tap-hint">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5" />
+            </svg>
+            Tap teks bergaris putus untuk langsung ke form
+          </div>
+        </div>
+
+        <!-- Client Form Panel — mobile: order 2 (below canvas, scrollable) -->
+        <aside class="editor-sidebar-left client-form-sidebar" id="client-form-panel">
+          <div class="tool-section">
+            <div class="tool-section-title">Isi Form</div>
+            <p class="client-form-hint">Ubah nilai form di bawah untuk memperbarui teks pada design</p>
+            <div id="client-form-fields"></div>
+          </div>
+        </aside>
+
+        <!-- Info Panel — hidden on mobile -->
+        <aside class="editor-sidebar-right client-info-panel">
+          <div class="panel-header"><span>Informasi Design</span></div>
+          <div class="design-info-panel">
+            <div class="info-item">
+              <label>Nama Design</label>
+              <span id="client-info-name">—</span>
+            </div>
+            <div class="info-item">
+              <label>Field Tersedia</label>
+              <span id="client-info-fields">—</span>
+            </div>
+            <div class="info-item">
+              <label>Petunjuk</label>
+              <p class="info-hint">Klik teks bergaris putus pada preview untuk langsung ke form field yang sesuai.</p>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── MODALS ─────────────────────────────────────────────────────────────── -->
+
+  <!-- Create Design Modal -->
+  <div id="modal-create-design" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Buat Design Baru</h3>
+        <button class="btn-icon" onclick="closeModal('modal-create-design')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Nama Design</label>
+          <input type="text" id="new-design-name" class="form-input" placeholder="cth: Template Sertifikat 2024">
+        </div>
+        <div class="form-group">
+          <label>Gambar Background (opsional)</label>
+          <div class="upload-zone" onclick="document.getElementById('modal-image-input').click()">
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              opacity="0.5">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <circle cx="8.5" cy="8.5" r="1.5" />
+              <polyline points="21 15 16 10 5 21" />
+            </svg>
+            <p>Klik untuk upload gambar</p>
+            <span>PNG, JPG, WEBP hingga 20MB</span>
+            <div id="modal-image-preview" class="upload-preview hidden"></div>
+          </div>
+          <input type="file" id="modal-image-input" accept="image/*" class="hidden" onchange="previewModalImage(event)">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Lebar Kanvas</label>
+            <input type="number" id="new-canvas-width" class="form-input" value="800" min="100" max="3000">
+          </div>
+          <div class="form-group">
+            <label>Tinggi Kanvas</label>
+            <input type="number" id="new-canvas-height" class="form-input" value="600" min="100" max="3000">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-create-design')">Batal</button>
+        <button class="btn-primary" onclick="createNewDesign()">Buat & Edit</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Share Modal -->
+  <div id="modal-share" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Bagikan Design</h3>
+        <button class="btn-icon" onclick="closeModal('modal-share')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Email atau Username Client</label>
+          <div class="search-input-wrap">
+            <input type="text" id="share-search" class="form-input" placeholder="Cari email atau username..."
+              oninput="searchUsers(this.value)">
+            <button class="btn-primary btn-sm" onclick="shareDesign()">Share</button>
+          </div>
+          <div id="user-search-results" class="search-results hidden"></div>
+        </div>
+        <div class="shared-list-section">
+          <label class="prop-label">Sudah di-share ke:</label>
+          <div id="shared-users-list" class="shared-users-list">
+            <div class="empty-state-sm">Belum ada user yang di-share</div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-share')">Tutup</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Font Modal -->
+  <div id="modal-add-font" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Tambah Font</h3>
+        <button class="btn-icon" onclick="closeModal('modal-add-font')">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="tab-btns">
+          <button class="tab-btn active" onclick="switchFontTab('google', this)">Google Fonts</button>
+          <button class="tab-btn" onclick="switchFontTab('upload', this)">Upload Font</button>
+        </div>
+
+        <!-- Google Font Tab -->
+        <div id="font-tab-google">
+          <p class="tab-hint">Masukkan nama font dari <a href="https://fonts.google.com" target="_blank">Google
+              Fonts</a></p>
+          <div class="form-group">
+            <label>Nama Font</label>
+            <input type="text" id="gf-name" class="form-input" placeholder="cth: Roboto, Playfair Display...">
+          </div>
+          <div class="form-group">
+            <label>URL CSS Google Font</label>
+            <input type="text" id="gf-url" class="form-input"
+              placeholder="https://fonts.googleapis.com/css2?family=...">
+            <span class="prop-hint">Copy URL dari Google Fonts (tombol "Get font" → @import URL)</span>
+          </div>
+          <button class="btn-secondary btn-sm" onclick="previewGoogleFont()">Preview Font</button>
+          <div id="gf-preview" class="font-preview-lg hidden"></div>
+        </div>
+
+        <!-- Upload Font Tab -->
+        <div id="font-tab-upload" class="hidden">
+          <div class="form-group">
+            <label>Nama Font</label>
+            <input type="text" id="uf-name" class="form-input" placeholder="Nama tampilan font">
+          </div>
+          <div class="upload-zone" onclick="document.getElementById('font-file-input').click()">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+              opacity="0.5">
+              <polyline points="4 7 4 4 20 4 20 7" />
+              <line x1="9" y1="20" x2="15" y2="20" />
+              <line x1="12" y1="4" x2="12" y2="20" />
+            </svg>
+            <p id="font-upload-label">Klik untuk upload file font</p>
+            <span>.ttf, .otf, .woff, .woff2</span>
+          </div>
+          <input type="file" id="font-file-input" accept=".ttf,.otf,.woff,.woff2" class="hidden"
+            onchange="handleFontFileSelect(event)">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" onclick="closeModal('modal-add-font')">Batal</button>
+        <button class="btn-primary" onclick="addFont()">Tambah Font</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast-container"></div>
+
+  <!-- Loader overlay -->
+  <div id="page-loader" class="page-loader hidden">
+    <div class="loader-content">
+      <div class="spinner spinner-lg"></div>
+      <span id="loader-text">Memuat...</span>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+
+</html>
