@@ -376,7 +376,8 @@ app.get('/api/admin/users/search', adminMiddleware, async (req, res) => {
 });
 
 // ─── SPA Fallback (Sintaks kompatibel Express 5) ─────────────────────────────
-app.get('(.*)', (req, res) => {
+// ─── SPA Fallback (Kompatibel Penuh Express 5) ─────────────────────────────────
+app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
