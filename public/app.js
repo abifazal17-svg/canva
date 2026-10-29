@@ -393,7 +393,7 @@ function renderDesignGrid(grid, designs, isAdmin) {
 
 function buildDesignCard(d, isAdmin) {
   const thumb = d.image_url
-    ? `<img src="${d.image_url}" alt="${d.name}" loading="lazy">`
+    ? `<img src="${d.image_url}" alt="${d.name}" loading="lazy" crossorigin="anonymous">`
     : `<div class="thumb-placeholder"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" opacity="0.3"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg><span style="font-size:12px;color:var(--text-muted)">Tanpa gambar</span></div>`;
   const date = new Date(d.created_at || d.updated_at).toLocaleDateString('id-ID', { day:'2-digit', month:'short', year:'numeric' });
   const formFields = (d.texts || []).filter(t => t.formName).length;
@@ -813,19 +813,64 @@ function focusHighlight(input) {
 }
 
 const imageCache = {};
+
+/**
+ * Load an image URL into a canvas-safe HTMLImageElement.
+ *
+ * Strategy: Use fetch() with cache:'reload' to always get a fresh response
+ * that includes CORS headers, then convert to a Blob URL.  This sidesteps
+ * the classic browser-cache-poisoning problem where the same URL is first
+ * loaded by an <img> tag (no CORS request) and later re-used by a canvas
+ * (needs CORS) — the cached non-CORS response would make toDataURL throw.
+ *
+ * @param {string} url     - relative or absolute image URL
+ * @param {Function} onLoad - called once the image is ready to draw
+ * @returns {HTMLImageElement|null} cached image element, or null while loading
+ */
 function getCachedImage(url, onLoad) {
-  // Make relative paths absolute so they load on any device/IP
-  const absUrl = url && url.startsWith('/') ? (window.location.origin + url) : url;
-  if (!absUrl) return null;
-  // Check both absolute and relative key (for backwards-compat with handleImageUpload cache)
+  if (!url) return null;
+
+  // Normalise to absolute URL so cache keys are consistent across devices
+  const absUrl = url.startsWith('/') ? (window.location.origin + url) : url;
+
+  // Already cached?
   if (imageCache[absUrl]) return imageCache[absUrl];
-  if (imageCache[url]) return imageCache[url];
-  const img = new Image();
-  img.crossOrigin = 'anonymous';
-  img.onload  = () => { imageCache[absUrl] = img; imageCache[url] = img; onLoad && onLoad(); };
-  img.onerror = () => { console.warn('[DesignCraft] Failed to load image:', absUrl); };
-  img.src = absUrl;
-  return null;
+
+  // Mark as "loading" with a sentinel so concurrent calls don't fire multiple fetches
+  imageCache[absUrl] = null;   // placeholder — truthy check would fail, we need !== undefined
+  imageCache['__loading__' + absUrl] = true;
+
+  // Use fetch to get a CORS-safe blob, bypassing any non-CORS browser cache entry
+  fetch(absUrl, { cache: 'reload' })
+    .then(res => {
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      return res.blob();
+    })
+    .then(blob => {
+      const blobUrl = URL.createObjectURL(blob);
+      const img = new Image();
+      img.onload = () => {
+        imageCache[absUrl] = img;
+        imageCache[url]    = img;   // also store under relative key for convenience
+        delete imageCache['__loading__' + absUrl];
+        URL.revokeObjectURL(blobUrl); // free memory after img has it
+        onLoad && onLoad();
+      };
+      img.onerror = () => {
+        delete imageCache[absUrl];
+        delete imageCache['__loading__' + absUrl];
+        console.warn('[DesignCraft] Failed to create image from blob:', absUrl);
+      };
+      img.src = blobUrl;
+    })
+    .catch(err => {
+      // Network error — remove sentinel so next render retries
+      delete imageCache[absUrl];
+      delete imageCache['__loading__' + absUrl];
+      console.warn('[DesignCraft] fetch failed for image, will retry:', absUrl, err.message);
+    });
+
+  return null;  // not ready yet; onLoad will trigger a re-render
 }
 
 function drawGrid(ctx, w, h) {
@@ -1321,7 +1366,10 @@ async function handleImageUpload(event) {
     fd.append('image', file);
     const res = await api('POST', '/api/upload/image', fd, true);
     App.imageUrl = res.url;
-    // Update canvas size based on image
+
+    // Use the uploaded file directly as a Blob to avoid CORS cache issues.
+    // This guarantees the cached image is canvas-safe (no tainted-canvas risk).
+    const blobUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
       App.canvasW = img.naturalWidth;
@@ -1331,13 +1379,14 @@ async function handleImageUpload(event) {
       const canvas = document.getElementById('main-canvas');
       canvas.width = App.canvasW;
       canvas.height = App.canvasH;
-      // Store with both relative and absolute URL keys so getCachedImage finds it
+      // Cache under both relative and absolute URL keys
       const absUrl = res.url.startsWith('/') ? (window.location.origin + res.url) : res.url;
       imageCache[res.url] = img;
-      imageCache[absUrl] = img;
+      imageCache[absUrl]  = img;
+      URL.revokeObjectURL(blobUrl);
       renderCanvas();
     };
-    img.src = res.url;
+    img.src = blobUrl;
     hideLoader();
     toast('Gambar berhasil diupload!', 'success');
   } catch (err) {
