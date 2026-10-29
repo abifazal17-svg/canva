@@ -5,7 +5,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const multer = require('multer');
 const { v4: uuidv4 } = require('uuid');
-const Database = require('better-sqlite3');
+const mysql = require('mysql2/promise');
 
 const app = express();
 const PORT = 3000;
@@ -20,71 +20,34 @@ const IMAGES_DIR = path.join(__dirname, 'public', 'uploads', 'images');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// ─── Database Setup ───────────────────────────────────────────────────────────
-const db = new Database(path.join(__dirname, 'database.sqlite'));
+// ─── Database Setup (MySQL / phpMyAdmin) ──────────────────────────────────────
+const db = mysql.createPool({
+  host: 'localhost',
+  user: 'root',      // Sesuaikan username database Anda (default XAMPP: root)
+  password: '',      // Sesuaikan password database Anda (default XAMPP: kosong)
+  database: 'canva_clone',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id TEXT PRIMARY KEY,
-    email TEXT UNIQUE NOT NULL,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'client',
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS designs (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    image_url TEXT,
-    image_width INTEGER DEFAULT 800,
-    image_height INTEGER DEFAULT 600,
-    texts TEXT DEFAULT '[]',
-    created_by TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (created_by) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS design_shares (
-    id TEXT PRIMARY KEY,
-    design_id TEXT NOT NULL,
-    shared_with TEXT NOT NULL,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (design_id) REFERENCES designs(id),
-    FOREIGN KEY (shared_with) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS client_designs (
-    id TEXT PRIMARY KEY,
-    design_id TEXT NOT NULL,
-    user_id TEXT NOT NULL,
-    form_values TEXT DEFAULT '{}',
-    updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (design_id) REFERENCES designs(id),
-    FOREIGN KEY (user_id) REFERENCES users(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS fonts (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    type TEXT NOT NULL,
-    url TEXT,
-    file_path TEXT,
-    uploaded_by TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-`);
-
-// Seed admin user
-const adminExists = db.prepare('SELECT id FROM users WHERE role = ?').get('admin');
-if (!adminExists) {
-  const hashedPw = bcrypt.hashSync('admin123', 10);
-  db.prepare('INSERT INTO users (id, email, username, password, role) VALUES (?, ?, ?, ?, ?)').run(
-    uuidv4(), 'admin@canva.com', 'admin', hashedPw, 'admin'
-  );
-  console.log('✅ Admin seeded: admin@canva.com / admin123');
+// Seed Admin User
+async function initDB() {
+  try {
+    const [rows] = await db.execute('SELECT id FROM users WHERE role = ?', ['admin']);
+    if (rows.length === 0) {
+      const hashedPw = bcrypt.hashSync('admin123', 10);
+      await db.execute(
+        'INSERT INTO users (id, email, username, password, role) VALUES (?, ?, ?, ?, ?)',
+        [uuidv4(), 'admin@canva.com', 'admin', hashedPw, 'admin']
+      );
+      console.log('✅ Admin seeded: admin@canva.com / admin123');
+    }
+  } catch (err) {
+    console.error('❌ Error initializing DB:', err.message);
+  }
 }
+initDB();
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
 app.use(express.json({ limit: '50mb' }));
@@ -132,32 +95,41 @@ function adminMiddleware(req, res, next) {
 }
 
 // ─── Auth Routes ──────────────────────────────────────────────────────────────
-app.post('/api/auth/register', (req, res) => {
+app.post('/api/auth/register', async (req, res) => {
   const { email, username, password } = req.body;
   if (!email || !username || !password) return res.status(400).json({ error: 'All fields required' });
 
   try {
     const hashedPw = bcrypt.hashSync(password, 10);
     const id = uuidv4();
-    db.prepare('INSERT INTO users (id, email, username, password, role) VALUES (?, ?, ?, ?, ?)').run(
-      id, email.toLowerCase(), username, hashedPw, 'client'
+    await db.execute(
+      'INSERT INTO users (id, email, username, password, role) VALUES (?, ?, ?, ?, ?)',
+      [id, email.toLowerCase(), username, hashedPw, 'client']
     );
     const token = jwt.sign({ id, email, username, role: 'client' }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, user: { id, email, username, role: 'client' } });
   } catch (err) {
-    if (err.message.includes('UNIQUE')) return res.status(400).json({ error: 'Email atau username sudah terdaftar' });
+    if (err.code === 'ER_DUP_ENTRY' || err.message.includes('UNIQUE')) {
+      return res.status(400).json({ error: 'Email atau username sudah terdaftar' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
   const { email, password } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE email = ?').get(email?.toLowerCase());
-  if (!user || !bcrypt.compareSync(password, user.password)) {
-    return res.status(401).json({ error: 'Email atau password salah' });
+  try {
+    const [users] = await db.execute('SELECT * FROM users WHERE email = ?', [email?.toLowerCase()]);
+    const user = users[0];
+
+    if (!user || !bcrypt.compareSync(password, user.password)) {
+      return res.status(401).json({ error: 'Email atau password salah' });
+    }
+    const token = jwt.sign({ id: user.id, email: user.email, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, user: { id: user.id, email: user.email, username: user.username, role: user.role } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  const token = jwt.sign({ id: user.id, email: user.email, username: user.username, role: user.role }, JWT_SECRET, { expiresIn: '7d' });
-  res.json({ token, user: { id: user.id, email: user.email, username: user.username, role: user.role } });
 });
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
@@ -165,74 +137,107 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
 });
 
 // ─── Design Routes (Admin) ────────────────────────────────────────────────────
-app.get('/api/admin/designs', adminMiddleware, (req, res) => {
-  const designs = db.prepare(`
-    SELECT d.*, 
-      (SELECT COUNT(*) FROM design_shares WHERE design_id = d.id) as share_count
-    FROM designs d WHERE d.created_by = ? ORDER BY d.created_at DESC
-  `).all(req.user.id);
-  res.json(designs.map(d => ({ ...d, texts: JSON.parse(d.texts || '[]') })));
+app.get('/api/admin/designs', adminMiddleware, async (req, res) => {
+  try {
+    const [designs] = await db.execute(`
+      SELECT d.*, 
+        (SELECT COUNT(*) FROM design_shares WHERE design_id = d.id) as share_count
+      FROM designs d WHERE d.created_by = ? ORDER BY d.created_at DESC
+    `, [req.user.id]);
+    res.json(designs.map(d => ({ ...d, texts: JSON.parse(d.texts || '[]') })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.post('/api/admin/designs', adminMiddleware, (req, res) => {
+app.post('/api/admin/designs', adminMiddleware, async (req, res) => {
   const { name, image_url, image_width, image_height, texts } = req.body;
   const id = uuidv4();
-  db.prepare('INSERT INTO designs (id, name, image_url, image_width, image_height, texts, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)').run(
-    id, name, image_url, image_width || 800, image_height || 600, JSON.stringify(texts || []), req.user.id
-  );
-  res.json({ id, name, image_url, texts: texts || [] });
+  try {
+    await db.execute(
+      'INSERT INTO designs (id, name, image_url, image_width, image_height, texts, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [id, name, image_url, image_width || 800, image_height || 600, JSON.stringify(texts || []), req.user.id]
+    );
+    res.json({ id, name, image_url, texts: texts || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/admin/designs/:id', adminMiddleware, (req, res) => {
-  const design = db.prepare('SELECT * FROM designs WHERE id = ? AND created_by = ?').get(req.params.id, req.user.id);
-  if (!design) return res.status(404).json({ error: 'Design not found' });
-  const shares = db.prepare(`
-    SELECT u.id, u.email, u.username FROM design_shares ds
-    JOIN users u ON u.id = ds.shared_with WHERE ds.design_id = ?
-  `).all(design.id);
-  res.json({ ...design, texts: JSON.parse(design.texts || '[]'), shares });
+app.get('/api/admin/designs/:id', adminMiddleware, async (req, res) => {
+  try {
+    const [designs] = await db.execute('SELECT * FROM designs WHERE id = ? AND created_by = ?', [req.params.id, req.user.id]);
+    const design = designs[0];
+    if (!design) return res.status(404).json({ error: 'Design not found' });
+
+    const [shares] = await db.execute(`
+      SELECT u.id, u.email, u.username FROM design_shares ds
+      JOIN users u ON u.id = ds.shared_with WHERE ds.design_id = ?
+    `, [design.id]);
+
+    res.json({ ...design, texts: JSON.parse(design.texts || '[]'), shares });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/admin/designs/:id', adminMiddleware, (req, res) => {
+app.put('/api/admin/designs/:id', adminMiddleware, async (req, res) => {
   const { name, image_url, image_width, image_height, texts } = req.body;
-  db.prepare(`
-    UPDATE designs SET name = ?, image_url = ?, image_width = ?, image_height = ?, texts = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE id = ? AND created_by = ?
-  `).run(name, image_url, image_width || 800, image_height || 600, JSON.stringify(texts || []), req.params.id, req.user.id);
-  res.json({ success: true });
+  try {
+    await db.execute(`
+      UPDATE designs SET name = ?, image_url = ?, image_width = ?, image_height = ?, texts = ?
+      WHERE id = ? AND created_by = ?
+    `, [name, image_url, image_width || 800, image_height || 600, JSON.stringify(texts || []), req.params.id, req.user.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.delete('/api/admin/designs/:id', adminMiddleware, (req, res) => {
-  db.prepare('DELETE FROM design_shares WHERE design_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM client_designs WHERE design_id = ?').run(req.params.id);
-  db.prepare('DELETE FROM designs WHERE id = ? AND created_by = ?').run(req.params.id, req.user.id);
-  res.json({ success: true });
+app.delete('/api/admin/designs/:id', adminMiddleware, async (req, res) => {
+  try {
+    await db.execute('DELETE FROM design_shares WHERE design_id = ?', [req.params.id]);
+    await db.execute('DELETE FROM client_designs WHERE design_id = ?', [req.params.id]);
+    await db.execute('DELETE FROM designs WHERE id = ? AND created_by = ?', [req.params.id, req.user.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Share design
-app.post('/api/admin/designs/:id/share', adminMiddleware, (req, res) => {
+app.post('/api/admin/designs/:id/share', adminMiddleware, async (req, res) => {
   const { emailOrUsername } = req.body;
-  const user = db.prepare('SELECT * FROM users WHERE email = ? OR username = ?').get(emailOrUsername?.toLowerCase(), emailOrUsername);
-  if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
-  if (user.role === 'admin') return res.status(400).json({ error: 'Tidak bisa share ke admin' });
+  try {
+    const [users] = await db.execute('SELECT * FROM users WHERE email = ? OR username = ?', [emailOrUsername?.toLowerCase(), emailOrUsername]);
+    const user = users[0];
+    if (!user) return res.status(404).json({ error: 'User tidak ditemukan' });
+    if (user.role === 'admin') return res.status(400).json({ error: 'Tidak bisa share ke admin' });
 
-  const existing = db.prepare('SELECT id FROM design_shares WHERE design_id = ? AND shared_with = ?').get(req.params.id, user.id);
-  if (existing) return res.status(400).json({ error: 'Design sudah di-share ke user ini' });
+    const [existing] = await db.execute('SELECT id FROM design_shares WHERE design_id = ? AND shared_with = ?', [req.params.id, user.id]);
+    if (existing.length > 0) return res.status(400).json({ error: 'Design sudah di-share ke user ini' });
 
-  db.prepare('INSERT INTO design_shares (id, design_id, shared_with) VALUES (?, ?, ?)').run(uuidv4(), req.params.id, user.id);
-  
-  // Create client design record
-  const cdExists = db.prepare('SELECT id FROM client_designs WHERE design_id = ? AND user_id = ?').get(req.params.id, user.id);
-  if (!cdExists) {
-    db.prepare('INSERT INTO client_designs (id, design_id, user_id, form_values) VALUES (?, ?, ?, ?)').run(uuidv4(), req.params.id, user.id, '{}');
+    await db.execute('INSERT INTO design_shares (id, design_id, shared_with) VALUES (?, ?, ?)', [uuidv4(), req.params.id, user.id]);
+
+    // Create client design record
+    const [cdExists] = await db.execute('SELECT id FROM client_designs WHERE design_id = ? AND user_id = ?', [req.params.id, user.id]);
+    if (cdExists.length === 0) {
+      await db.execute('INSERT INTO client_designs (id, design_id, user_id, form_values) VALUES (?, ?, ?, ?)', [uuidv4(), req.params.id, user.id, '{}']);
+    }
+
+    res.json({ success: true, user: { id: user.id, email: user.email, username: user.username } });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  
-  res.json({ success: true, user: { id: user.id, email: user.email, username: user.username } });
 });
 
-app.delete('/api/admin/designs/:id/share/:userId', adminMiddleware, (req, res) => {
-  db.prepare('DELETE FROM design_shares WHERE design_id = ? AND shared_with = ?').run(req.params.id, req.params.userId);
-  res.json({ success: true });
+app.delete('/api/admin/designs/:id/share/:userId', adminMiddleware, async (req, res) => {
+  try {
+    await db.execute('DELETE FROM design_shares WHERE design_id = ? AND shared_with = ?', [req.params.id, req.params.userId]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Upload Routes ────────────────────────────────────────────────────────────
@@ -241,97 +246,135 @@ app.post('/api/upload/image', adminMiddleware, uploadImage.single('image'), (req
   res.json({ url: `/uploads/images/${req.file.filename}` });
 });
 
-app.post('/api/upload/font', adminMiddleware, uploadFont.single('font'), (req, res) => {
+app.post('/api/upload/font', adminMiddleware, uploadFont.single('font'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   const fontName = req.body.name || path.basename(req.file.originalname, path.extname(req.file.originalname));
   const id = uuidv4();
-  db.prepare('INSERT INTO fonts (id, name, type, url, file_path, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)').run(
-    id, fontName, 'upload', `/fonts/${req.file.filename}`, req.file.path, req.user.id
-  );
-  res.json({ id, name: fontName, url: `/fonts/${req.file.filename}`, type: 'upload' });
+  try {
+    await db.execute('INSERT INTO fonts (id, name, type, url, file_path, uploaded_by) VALUES (?, ?, ?, ?, ?, ?)', [
+      id, fontName, 'upload', `/fonts/${req.file.filename}`, req.file.path, req.user.id
+    ]);
+    res.json({ id, name: fontName, url: `/fonts/${req.file.filename}`, type: 'upload' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Add Google Font
-app.post('/api/fonts/google', adminMiddleware, (req, res) => {
+app.post('/api/fonts/google', adminMiddleware, async (req, res) => {
   const { name, url } = req.body;
   if (!name || !url) return res.status(400).json({ error: 'Name and URL required' });
   const id = uuidv4();
-  db.prepare('INSERT INTO fonts (id, name, type, url, uploaded_by) VALUES (?, ?, ?, ?, ?)').run(
-    id, name, 'google', url, req.user.id
-  );
-  res.json({ id, name, url, type: 'google' });
-});
-
-app.get('/api/fonts', authMiddleware, (req, res) => {
-  const fonts = db.prepare('SELECT * FROM fonts ORDER BY created_at DESC').all();
-  res.json(fonts);
-});
-
-app.delete('/api/fonts/:id', adminMiddleware, (req, res) => {
-  const font = db.prepare('SELECT * FROM fonts WHERE id = ?').get(req.params.id);
-  if (font && font.file_path) {
-    try { fs.unlinkSync(font.file_path); } catch {}
+  try {
+    await db.execute('INSERT INTO fonts (id, name, type, url, uploaded_by) VALUES (?, ?, ?, ?, ?)', [
+      id, name, 'google', url, req.user.id
+    ]);
+    res.json({ id, name, url, type: 'google' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  db.prepare('DELETE FROM fonts WHERE id = ?').run(req.params.id);
-  res.json({ success: true });
+});
+
+app.get('/api/fonts', authMiddleware, async (req, res) => {
+  try {
+    const [fonts] = await db.execute('SELECT * FROM fonts ORDER BY created_at DESC');
+    res.json(fonts);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.delete('/api/fonts/:id', adminMiddleware, async (req, res) => {
+  try {
+    const [fonts] = await db.execute('SELECT * FROM fonts WHERE id = ?', [req.params.id]);
+    const font = fonts[0];
+    if (font && font.file_path) {
+      try { fs.unlinkSync(font.file_path); } catch { }
+    }
+    await db.execute('DELETE FROM fonts WHERE id = ?', [req.params.id]);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Client Routes ────────────────────────────────────────────────────────────
-app.get('/api/client/designs', authMiddleware, (req, res) => {
+app.get('/api/client/designs', authMiddleware, async (req, res) => {
   if (req.user.role === 'admin') return res.json([]);
-  const designs = db.prepare(`
-    SELECT d.*, cd.id as cd_id, cd.form_values
-    FROM design_shares ds
-    JOIN designs d ON d.id = ds.design_id
-    JOIN client_designs cd ON cd.design_id = d.id AND cd.user_id = ds.shared_with
-    WHERE ds.shared_with = ?
-    ORDER BY ds.created_at DESC
-  `).all(req.user.id);
-  res.json(designs.map(d => ({
-    ...d,
-    texts: JSON.parse(d.texts || '[]'),
-    form_values: JSON.parse(d.form_values || '{}')
-  })));
+  try {
+    const [designs] = await db.execute(`
+      SELECT d.*, cd.id as cd_id, cd.form_values
+      FROM design_shares ds
+      JOIN designs d ON d.id = ds.design_id
+      JOIN client_designs cd ON cd.design_id = d.id AND cd.user_id = ds.shared_with
+      WHERE ds.shared_with = ?
+      ORDER BY ds.created_at DESC
+    `, [req.user.id]);
+    res.json(designs.map(d => ({
+      ...d,
+      texts: JSON.parse(d.texts || '[]'),
+      form_values: JSON.parse(d.form_values || '{}')
+    })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.get('/api/client/designs/:id', authMiddleware, (req, res) => {
-  const share = db.prepare('SELECT * FROM design_shares WHERE design_id = ? AND shared_with = ?').get(req.params.id, req.user.id);
-  if (!share && req.user.role !== 'admin') return res.status(403).json({ error: 'Access denied' });
-  
-  const design = db.prepare('SELECT * FROM designs WHERE id = ?').get(req.params.id);
-  if (!design) return res.status(404).json({ error: 'Design not found' });
-  
-  const clientDesign = db.prepare('SELECT * FROM client_designs WHERE design_id = ? AND user_id = ?').get(req.params.id, req.user.id);
-  res.json({
-    ...design,
-    texts: JSON.parse(design.texts || '[]'),
-    form_values: JSON.parse(clientDesign?.form_values || '{}')
-  });
+app.get('/api/client/designs/:id', authMiddleware, async (req, res) => {
+  try {
+    const [shares] = await db.execute('SELECT * FROM design_shares WHERE design_id = ? AND shared_with = ?', [req.params.id, req.user.id]);
+    if (shares.length === 0 && req.user.role !== 'admin') return res.status(403).json({ error: 'Access denied' });
+
+    const [designs] = await db.execute('SELECT * FROM designs WHERE id = ?', [req.params.id]);
+    const design = designs[0];
+    if (!design) return res.status(404).json({ error: 'Design not found' });
+
+    const [clientDesigns] = await db.execute('SELECT * FROM client_designs WHERE design_id = ? AND user_id = ?', [req.params.id, req.user.id]);
+    const clientDesign = clientDesigns[0];
+
+    res.json({
+      ...design,
+      texts: JSON.parse(design.texts || '[]'),
+      form_values: JSON.parse(clientDesign?.form_values || '{}')
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-app.put('/api/client/designs/:id/form', authMiddleware, (req, res) => {
+app.put('/api/client/designs/:id/form', authMiddleware, async (req, res) => {
   const { form_values } = req.body;
-  const result = db.prepare(`
-    UPDATE client_designs SET form_values = ?, updated_at = CURRENT_TIMESTAMP
-    WHERE design_id = ? AND user_id = ?
-  `).run(JSON.stringify(form_values), req.params.id, req.user.id);
-  if (result.changes === 0) return res.status(404).json({ error: 'Client design not found' });
-  res.json({ success: true });
+  try {
+    const [result] = await db.execute(`
+      UPDATE client_designs SET form_values = ?
+      WHERE design_id = ? AND user_id = ?
+    `, [JSON.stringify(form_values), req.params.id, req.user.id]);
+
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Client design not found' });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Search users (admin only)
-app.get('/api/admin/users/search', adminMiddleware, (req, res) => {
+app.get('/api/admin/users/search', adminMiddleware, async (req, res) => {
   const { q } = req.query;
-  const users = db.prepare(`
-    SELECT id, email, username FROM users 
-    WHERE role = 'client' AND (email LIKE ? OR username LIKE ?)
-    LIMIT 10
-  `).all(`%${q}%`, `%${q}%`);
-  res.json(users);
+  try {
+    const searchVal = `%${q}%`;
+    const [users] = await db.execute(`
+      SELECT id, email, username FROM users 
+      WHERE role = 'client' AND (email LIKE ? OR username LIKE ?)
+      LIMIT 10
+    `, [searchVal, searchVal]);
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── SPA Fallback ─────────────────────────────────────────────────────────────
-app.get('/{*splat}', (req, res) => {
+app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
