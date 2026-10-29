@@ -23,9 +23,12 @@ const IMAGES_DIR = path.join(__dirname, 'public', 'uploads', 'images');
 // ─── Database Setup (MySQL / phpMyAdmin) ──────────────────────────────────────
 const db = mysql.createPool({
   host: process.env.DB_HOST || 'db.fr-roub1.bengt.wasmernet.com',
+  port: Number(process.env.DB_PORT) || 3306, // Pastikan port sesuai dashboard Wasmer
   user: process.env.DB_USER || 'user_a7d99fd8',
   password: process.env.DB_PASSWORD || 'pw_5fZnvLKFBu19OGf6G6nhM6qzyDKk01T6',
   database: process.env.DB_NAME || 'db_39444a4c',
+  ssl: { rejectUnauthorized: false }, // Menangani handshake SSL untuk cloud DB
+  connectTimeout: 30000,              // Perpanjang timeout menjadi 30 detik
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
