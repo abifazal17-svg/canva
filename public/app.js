@@ -22,51 +22,85 @@ const App = {
   resizeState: null,
 };
 
-// ─── Zoom State ────────────────────────────────────────────────────
-const ZoomState = {
-  admin: 1,
-  client: 1,
-  min: 0.1,
-  max: 8,
-  pinchDist: null,    // for touch pinch tracking
+// ─── View State (Zoom + Pan) ──────────────────────────────────────────
+const ViewState = {
+  admin:  { zoom: 1, panX: 60, panY: 60 },
+  client: { zoom: 1, panX: 60, panY: 60 },
+  pinchDist: null,
+  pinchTouchPanStart: null,   // {x,y,panX,panY}
+  spacePanning: false,        // true while Space is held
 };
 
-function applyAdminZoom(z) {
-  z = Math.max(ZoomState.min, Math.min(ZoomState.max, z));
-  ZoomState.admin = z;
-  const container = document.getElementById('canvas-container');
-  if (!container) return;
-  container.style.transform       = `scale(${z})`;
-  container.style.transformOrigin = 'top left';
-  // Expand scroll area to match visual size
-  container.style.marginRight  = (App.canvasW  * Math.max(0, z - 1)) + 'px';
-  container.style.marginBottom = (App.canvasH * Math.max(0, z - 1)) + 'px';
-  _setZoomDisplay('admin-zoom-display', z);
-}
+// Keep these aliases so old callers (buttons, keyboard) still work
+const ZoomState = { get admin(){ return ViewState.admin.zoom; }, get client(){ return ViewState.client.zoom; } };
 
-function applyClientZoom(z) {
-  z = Math.max(ZoomState.min, Math.min(ZoomState.max, z));
-  ZoomState.client = z;
-  const container = document.getElementById('client-canvas-container');
-  if (!container) return;
-  const cw = App.clientDesignData?.image_width  || 800;
-  const ch = App.clientDesignData?.image_height || 600;
-  container.style.transform       = `scale(${z})`;
-  container.style.transformOrigin = 'top left';
-  container.style.marginRight  = (cw * Math.max(0, z - 1)) + 'px';
-  container.style.marginBottom = (ch * Math.max(0, z - 1)) + 'px';
-  _setZoomDisplay('client-zoom-display', z);
+/* ─ Core view appliers ─ */
+function applyAdminView() {
+  const { zoom, panX, panY } = ViewState.admin;
+  const c = document.getElementById('canvas-container');
+  if (c) c.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  _setZoomDisplay('admin-zoom-display', zoom);
 }
-
+function applyClientView() {
+  const { zoom, panX, panY } = ViewState.client;
+  const c = document.getElementById('client-canvas-container');
+  if (c) c.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  _setZoomDisplay('client-zoom-display', zoom);
+}
 function _setZoomDisplay(id, z) {
   const el = document.getElementById(id);
   if (el) el.textContent = Math.round(z * 100) + '%';
 }
 
-function adjustAdminZoom(delta)  { applyAdminZoom(ZoomState.admin  + delta); }
-function adjustClientZoom(delta) { applyClientZoom(ZoomState.client + delta); }
-function resetAdminZoom()  { applyAdminZoom(1); }
-function resetClientZoom() { applyClientZoom(1); }
+/* ─ Zoom at a screen point (keeps that point fixed on the canvas) ─ */
+function zoomAtPoint(dz, clientX, clientY, mode) {
+  const vs  = ViewState[mode];
+  const oid = mode === 'admin' ? 'canvas-outer' : 'client-canvas-outer';
+  const outer = document.getElementById(oid);
+  if (!outer) return;
+  const rect = outer.getBoundingClientRect();
+  const ox = clientX - rect.left;   // offset inside outer
+  const oy = clientY - rect.top;
+  // Canvas coords under cursor
+  const cx = (ox - vs.panX) / vs.zoom;
+  const cy = (oy - vs.panY) / vs.zoom;
+  const newZ = Math.max(0.05, Math.min(8, vs.zoom + dz));
+  vs.panX = ox - cx * newZ;
+  vs.panY = oy - cy * newZ;
+  vs.zoom = newZ;
+  if (mode === 'admin') applyAdminView(); else applyClientView();
+}
+
+/* ─ Centre-zoom (for toolbar buttons) ─ */
+function _zoomCenter(delta, mode) {
+  const oid = mode === 'admin' ? 'canvas-outer' : 'client-canvas-outer';
+  const outer = document.getElementById(oid);
+  if (!outer) return;
+  const r = outer.getBoundingClientRect();
+  zoomAtPoint(delta, r.left + r.width / 2, r.top + r.height / 2, mode);
+}
+function adjustAdminZoom(d)  { _zoomCenter(d, 'admin');  }
+function adjustClientZoom(d) { _zoomCenter(d, 'client'); }
+function resetAdminZoom()  { _centerCanvas('admin');  }
+function resetClientZoom() { _centerCanvas('client'); }
+
+function _centerCanvas(mode) {
+  const outer = document.getElementById(mode === 'admin' ? 'canvas-outer' : 'client-canvas-outer');
+  if (!outer) return;
+  const r = outer.getBoundingClientRect();
+  const cw = mode === 'admin' ? App.canvasW : (App.clientDesignData?.image_width  || 800);
+  const ch = mode === 'admin' ? App.canvasH : (App.clientDesignData?.image_height || 600);
+  ViewState[mode].zoom = 1;
+  ViewState[mode].panX = Math.max(0, (r.width  - cw) / 2);
+  ViewState[mode].panY = Math.max(0, (r.height - ch) / 2);
+  if (mode === 'admin') applyAdminView(); else applyClientView();
+}
+
+/* ─ Pan helpers ─ */
+function _setPanCursor(outer, state) {
+  outer.classList.toggle('pan-ready',  state === 'ready');
+  outer.classList.toggle('is-panning', state === 'panning');
+}
 
 function getPinchDist(touches) {
   const dx = touches[0].clientX - touches[1].clientX;
@@ -74,57 +108,102 @@ function getPinchDist(touches) {
   return Math.hypot(dx, dy);
 }
 
-function initCanvasZoom() {
-  const outer = document.getElementById('canvas-outer');
-  if (!outer || outer._zoomBound) return;
-  outer._zoomBound = true;
+/* ─ Wire up wheel, middle-mouse drag, space+drag, touch pinch/pan ─ */
+function _bindPanZoom(outerId, mode) {
+  const outer = document.getElementById(outerId);
+  if (!outer || outer._pzBound) return;
+  outer._pzBound = true;
 
-  // Ctrl + Mouse-wheel
+  // ─ Mouse wheel: Ctrl = zoom at cursor, plain = pan ─
   outer.addEventListener('wheel', e => {
-    if (!e.ctrlKey && !e.metaKey) return;
     e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.12 : -0.12;
-    applyAdminZoom(ZoomState.admin + delta);
+    if (e.ctrlKey || e.metaKey) {
+      const dz = e.deltaY < 0 ? 0.12 : -0.12;
+      zoomAtPoint(ViewState[mode].zoom * dz, e.clientX, e.clientY, mode);
+    } else {
+      const dx = e.shiftKey ? -e.deltaY : -e.deltaX;
+      const dy = e.shiftKey ? 0 : -e.deltaY;
+      ViewState[mode].panX += dx;
+      ViewState[mode].panY += dy;
+      if (mode === 'admin') applyAdminView(); else applyClientView();
+    }
   }, { passive: false });
 
-  // 2-finger pinch (touch)
-  outer.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) ZoomState.pinchDist = getPinchDist(e.touches);
-  }, { passive: true });
-  outer.addEventListener('touchmove', e => {
-    if (e.touches.length !== 2 || ZoomState.pinchDist === null) return;
+  // ─ Mouse: Space+drag OR middle-mouse drag = pan ─
+  outer.addEventListener('mousedown', e => {
+    const isMiddle = e.button === 1;
+    const isSpace  = ViewState.spacePanning;
+    if (!isMiddle && !isSpace) return;
     e.preventDefault();
-    const d = getPinchDist(e.touches);
-    applyAdminZoom(ZoomState.admin * (d / ZoomState.pinchDist));
-    ZoomState.pinchDist = d;
+    const vs = ViewState[mode];
+    const sx = e.clientX, sy = e.clientY;
+    const spx = vs.panX,   spy = vs.panY;
+    _setPanCursor(outer, 'panning');
+    const onMove = e2 => {
+      vs.panX = spx + (e2.clientX - sx);
+      vs.panY = spy + (e2.clientY - sy);
+      if (mode === 'admin') applyAdminView(); else applyClientView();
+    };
+    const onUp = () => {
+      _setPanCursor(outer, ViewState.spacePanning ? 'ready' : '');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup',   onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup',   onUp);
+  });
+
+  // ─ Touch: 2-finger pinch = zoom, 1-finger (when zoomed) = pan ─
+  let touchPanStart = null;
+  outer.addEventListener('touchstart', e => {
+    if (e.touches.length === 2) {
+      ViewState.pinchDist = getPinchDist(e.touches);
+      touchPanStart = null;       // cancel single-finger pan
+    } else if (e.touches.length === 1) {
+      if (ViewState[mode].zoom > 1.02) {
+        // Only pan if actually zoomed in
+        touchPanStart = {
+          x: e.touches[0].clientX, y: e.touches[0].clientY,
+          panX: ViewState[mode].panX, panY: ViewState[mode].panY,
+        };
+      } else {
+        touchPanStart = null;
+      }
+    }
+  }, { passive: true });
+
+  outer.addEventListener('touchmove', e => {
+    e.preventDefault();
+    if (e.touches.length === 2 && ViewState.pinchDist !== null) {
+      const dist = getPinchDist(e.touches);
+      const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+      const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+      const ratio = dist / ViewState.pinchDist;
+      const dz = (ratio - 1) * ViewState[mode].zoom;
+      zoomAtPoint(dz, midX, midY, mode);
+      ViewState.pinchDist = dist;
+    } else if (e.touches.length === 1 && touchPanStart) {
+      const dx = e.touches[0].clientX - touchPanStart.x;
+      const dy = e.touches[0].clientY - touchPanStart.y;
+      ViewState[mode].panX = touchPanStart.panX + dx;
+      ViewState[mode].panY = touchPanStart.panY + dy;
+      if (mode === 'admin') applyAdminView(); else applyClientView();
+    }
   }, { passive: false });
-  outer.addEventListener('touchend', () => { ZoomState.pinchDist = null; });
+
+  outer.addEventListener('touchend', e => {
+    if (e.touches.length < 2) ViewState.pinchDist = null;
+    if (e.touches.length === 0) touchPanStart = null;
+  });
 }
 
-function initClientCanvasZoom() {
-  const outer = document.getElementById('client-canvas-outer');
-  if (!outer || outer._zoomBound) return;
-  outer._zoomBound = true;
+function initCanvasZoom()       { _bindPanZoom('canvas-outer',        'admin');  }
+function initClientCanvasZoom() { _bindPanZoom('client-canvas-outer', 'client'); }
 
-  outer.addEventListener('wheel', e => {
-    if (!e.ctrlKey && !e.metaKey) return;
-    e.preventDefault();
-    const delta = e.deltaY < 0 ? 0.12 : -0.12;
-    applyClientZoom(ZoomState.client + delta);
-  }, { passive: false });
+// Expose old names that keyboard / buttons still call
+function applyAdminZoom(z)  { ViewState.admin.zoom  = Math.max(0.05, Math.min(8, z)); applyAdminView();  }
+function applyClientZoom(z) { ViewState.client.zoom = Math.max(0.05, Math.min(8, z)); applyClientView(); }
 
-  outer.addEventListener('touchstart', e => {
-    if (e.touches.length === 2) ZoomState.pinchDist = getPinchDist(e.touches);
-  }, { passive: true });
-  outer.addEventListener('touchmove', e => {
-    if (e.touches.length !== 2 || ZoomState.pinchDist === null) return;
-    e.preventDefault();
-    const d = getPinchDist(e.touches);
-    applyClientZoom(ZoomState.client * (d / ZoomState.pinchDist));
-    ZoomState.pinchDist = d;
-  }, { passive: false });
-  outer.addEventListener('touchend', () => { ZoomState.pinchDist = null; });
-}
 
 // ─── API Helper ────────────────────────────────────────────────────────────
 async function api(method, path, body = null, isFormData = false) {
@@ -528,28 +607,28 @@ function initCanvas() {
   const canvas = document.getElementById('main-canvas');
   canvas.width  = App.canvasW;
   canvas.height = App.canvasH;
-  ZoomState.admin = 1;
   initCanvasZoom();
-  applyAdminZoom(1);
+  _centerCanvas('admin');
   renderCanvas();
 }
+
 
 function initClientCanvas() {
   const canvas = document.getElementById('client-canvas');
   const d = App.clientDesignData;
   canvas.width  = d.image_width  || 800;
   canvas.height = d.image_height || 600;
-  ZoomState.client = 1;
   initClientCanvasZoom();
-  applyClientZoom(1);
+  _centerCanvas('client');
 
-  // Click-to-jump and hover cursor (remove old listeners to prevent duplicates)
+  // Click-to-jump and hover cursor
   canvas.removeEventListener('click',     handleClientCanvasClick);
   canvas.removeEventListener('mousemove', handleClientCanvasHover);
   canvas.addEventListener('click',     handleClientCanvasClick);
   canvas.addEventListener('mousemove', handleClientCanvasHover);
   canvas.style.cursor = 'default';
 }
+
 
 function applyCanvasSize() {
   const w = parseInt(document.getElementById('canvas-width-input').value) || 800;
@@ -721,11 +800,15 @@ function focusHighlight(input) {
 
 const imageCache = {};
 function getCachedImage(url, onLoad) {
-  if (imageCache[url]) return imageCache[url];
+  // Make relative paths absolute so they load on any device/IP
+  const absUrl = url && url.startsWith('/') ? (window.location.origin + url) : url;
+  if (!absUrl) return null;
+  if (imageCache[absUrl]) return imageCache[absUrl];
   const img = new Image();
   img.crossOrigin = 'anonymous';
-  img.onload = () => { imageCache[url] = img; onLoad(); };
-  img.src = url;
+  img.onload  = () => { imageCache[absUrl] = img; onLoad && onLoad(); };
+  img.onerror = () => { console.warn('[DesignCraft] Failed to load image:', absUrl); };
+  img.src = absUrl;
   return null;
 }
 
@@ -838,7 +921,6 @@ function createTextElement(t) {
   el.appendChild(content);
 
   if (t.id === App.selectedTextId) {
-    // All 8 resize handles
     ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
       const handle = document.createElement('div');
       handle.className = `resize-handle resize-handle-${dir}`;
@@ -849,12 +931,19 @@ function createTextElement(t) {
 
   el.addEventListener('mousedown', e => {
     if (e.target.classList.contains('resize-handle')) return;
+    if (e.altKey) {
+      // Alt + drag → duplicate then drag the copy
+      e.preventDefault(); e.stopPropagation();
+      altDuplicateDrag(e, t);
+      return;
+    }
     selectText(t.id);
     startDrag(e, t.id);
   });
 
   return el;
 }
+
 
 function buildTextStyle(t) {
   return `
@@ -873,6 +962,46 @@ function buildTextStyle(t) {
     line-height: 1.3;
     pointer-events: none;
   `;
+}
+
+// ─── Clipboard (Ctrl+C / Ctrl+V / Alt+drag) ────────────────────────────────
+App.clipboard = null;
+
+function copySelectedText() {
+  const t = App.texts.find(x => x.id === App.selectedTextId);
+  if (!t) { toast('Pilih teks dulu untuk disalin', 'info'); return; }
+  App.clipboard = JSON.parse(JSON.stringify(t));
+  toast(`Disalin: "${(t.content || '').slice(0, 22)}"`, 'success');
+}
+
+function pasteText() {
+  if (!App.clipboard) { toast('Clipboard kosong — salin teks dulu (Ctrl+C)', 'info'); return; }
+  pushUndo();
+  const id = 'txt-' + Date.now();
+  const newT = {
+    ...JSON.parse(JSON.stringify(App.clipboard)),
+    id,
+    x: (App.clipboard.x || 0) + 20,
+    y: (App.clipboard.y || 0) + 20,
+    formName: '',   // reset form binding on paste
+  };
+  App.texts.push(newT);
+  renderTextOverlay();
+  selectText(id);
+  renderCanvas();
+  toast('Ditempel (Ctrl+V)', 'success');
+}
+
+/** Alt + drag → duplicate original in-place, then drag the copy */
+function altDuplicateDrag(e, original) {
+  pushUndo();
+  const id = 'txt-' + Date.now();
+  const copy = { ...JSON.parse(JSON.stringify(original)), id, formName: '' };
+  App.texts.push(copy);
+  renderTextOverlay();
+  selectText(id);
+  renderCanvas();
+  startDrag(e, id);   // immediately drag the copy
 }
 
 // ─── Text CRUD ─────────────────────────────────────────────────────────────
@@ -1018,8 +1147,10 @@ function updateFontPreview(fontFamily) {
   preview.style.fontFamily = `"${fontFamily}", sans-serif`;
 }
 
-// ─── Drag & Drop (zoom-aware) ───────────────────────────────────────────
+// ─── Drag & Drop (zoom + pan aware) ─────────────────────────────────────────────
 function startDrag(e, id) {
+  // If space-pan is active, don't start a text drag
+  if (ViewState.spacePanning) return;
   e.preventDefault();
   const t = App.texts.find(x => x.id === id);
   if (!t) return;
@@ -1030,15 +1161,17 @@ function startDrag(e, id) {
 
   function onMove(e2) {
     moved = true;
-    const z  = ZoomState.admin;              // divide by zoom so drag speed matches visual
+    const z  = ViewState.admin.zoom;    // divide by zoom so drag speed matches visual
     const dx = (e2.clientX - startX) / z;
     const dy = (e2.clientY - startY) / z;
     t.x = Math.max(0, origX + dx);
     t.y = Math.max(0, origY + dy);
     const el = document.getElementById(`te-${id}`);
     if (el) { el.style.left = t.x + 'px'; el.style.top = t.y + 'px'; }
-    document.getElementById('prop-x').value = Math.round(t.x);
-    document.getElementById('prop-y').value = Math.round(t.y);
+    const px = document.getElementById('prop-x');
+    const py = document.getElementById('prop-y');
+    if (px) px.value = Math.round(t.x);
+    if (py) py.value = Math.round(t.y);
     renderCanvas();
   }
 
@@ -1427,15 +1560,33 @@ async function addFont() {
   }
 }
 
-// ─── Download Client Design ────────────────────────────────────────────────
-function downloadClientDesign() {
+// ─── Download Client Design (JPG, no text boxes) ───────────────────────────
+async function downloadClientDesign() {
   const canvas = document.getElementById('client-canvas');
-  if (!canvas) return;
-  const link = document.createElement('a');
-  link.download = `${App.clientDesignData?.name || 'design'}.png`;
-  link.href = canvas.toDataURL('image/png');
-  link.click();
-  toast('Design berhasil didownload!', 'success');
+  if (!canvas || !App.clientDesignData) return;
+
+  // 1. Temporarily deselect so no outline/handles show
+  const prevSelected = App.selectedTextId;
+  App.selectedTextId = null;
+
+  // 2. Re-render canvas cleanly (no dashed click indicators)
+  renderClientCanvas();
+
+  // Let paint tick finish
+  await new Promise(r => setTimeout(r, 80));
+
+  try {
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
+    const link = document.createElement('a');
+    link.download = `${App.clientDesignData.name || 'design'}.jpg`;
+    link.href = dataUrl;
+    link.click();
+    toast('Design berhasil didownload (.jpg)!', 'success');
+  } finally {
+    // Restore selection state
+    App.selectedTextId = prevSelected;
+    renderClientCanvas();
+  }
 }
 
 // ─── Modal Helpers ─────────────────────────────────────────────────────────
@@ -1458,47 +1609,71 @@ function escHtml(str) {
 document.addEventListener('keydown', e => {
   const onEditor       = document.getElementById('page-editor').classList.contains('active');
   const onClientEditor = document.getElementById('page-client-editor').classList.contains('active');
+  const onAny = onEditor || onClientEditor;
   const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
 
-  // Delete / Backspace → delete selected text (not in input)
+  // Space → pan mode (grab cursor)
+  if (e.code === 'Space' && onAny && !isInput) {
+    e.preventDefault();
+    if (!ViewState.spacePanning) {
+      ViewState.spacePanning = true;
+      const oid = onEditor ? 'canvas-outer' : 'client-canvas-outer';
+      _setPanCursor(document.getElementById(oid), 'ready');
+    }
+    return;
+  }
+
+  // Delete / Backspace → delete selected text
   if (!isInput && (e.key === 'Delete' || e.key === 'Backspace')) {
     if (onEditor && App.selectedTextId) deleteSelectedText();
   }
 
   // Ctrl+Z → undo
-  if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+  if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
     if (onEditor) { e.preventDefault(); editorUndo(); }
   }
 
-  // Escape → deselect text
+  // Ctrl+C → copy selected text element
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
+    if (onEditor && App.selectedTextId) {
+      // Only intercept if a text element is selected; else let OS copy work normally
+      e.preventDefault();
+      copySelectedText();
+    }
+  }
+
+  // Ctrl+V → paste copied text element
+  if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+    if (onEditor && App.clipboard) {
+      e.preventDefault();
+      pasteText();
+    }
+  }
+
+  // Escape → deselect text / release pan
   if (!isInput && e.key === 'Escape') {
     if (onEditor) deselectText();
   }
 
-  // ─── Zoom shortcuts ───
-  // Ctrl + = or Ctrl + + → zoom in
+  // ─── Zoom shortcuts ───────────────────────────────────────────────────────
   if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) {
-    if (onEditor || onClientEditor) {
-      e.preventDefault();
-      if (onEditor)       adjustAdminZoom(0.15);
-      if (onClientEditor) adjustClientZoom(0.15);
-    }
+    if (onAny) { e.preventDefault(); if (onEditor) adjustAdminZoom(0.2); else adjustClientZoom(0.2); }
   }
-  // Ctrl + - → zoom out
   if ((e.ctrlKey || e.metaKey) && e.key === '-') {
-    if (onEditor || onClientEditor) {
-      e.preventDefault();
-      if (onEditor)       adjustAdminZoom(-0.15);
-      if (onClientEditor) adjustClientZoom(-0.15);
-    }
+    if (onAny) { e.preventDefault(); if (onEditor) adjustAdminZoom(-0.2); else adjustClientZoom(-0.2); }
   }
-  // Ctrl + 0 → reset zoom to 100%
   if ((e.ctrlKey || e.metaKey) && e.key === '0') {
-    if (onEditor || onClientEditor) {
-      e.preventDefault();
-      if (onEditor)       resetAdminZoom();
-      if (onClientEditor) resetClientZoom();
-    }
+    if (onAny) { e.preventDefault(); if (onEditor) resetAdminZoom(); else resetClientZoom(); }
+  }
+});
+
+document.addEventListener('keyup', e => {
+  if (e.code === 'Space' && ViewState.spacePanning) {
+    ViewState.spacePanning = false;
+    ['canvas-outer', 'client-canvas-outer'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) _setPanCursor(el, '');
+    });
   }
 });
 

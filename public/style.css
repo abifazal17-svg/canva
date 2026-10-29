@@ -537,25 +537,25 @@ button { cursor: pointer; border: none; background: none; }
 .editor-canvas-wrapper {
   flex: 1;
   background: #0d0d14;
-  overflow: auto;
-  display: flex;
-  align-items: flex-start;
-  justify-content: flex-start;
+  overflow: hidden;       /* clip — pan is driven by JS transform */
   position: relative;
+  min-width: 0;
 }
 .canvas-outer {
-  padding: 40px;
-  min-width: 100%;
-  min-height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  /* cursor set by JS: default | grab | grabbing */
 }
+.canvas-outer.is-panning { cursor: grabbing !important; }
+.canvas-outer.pan-ready  { cursor: grab !important; }
 .canvas-container {
-  position: relative;
-  display: inline-block;
+  position: absolute;
+  top: 0; left: 0;
+  transform-origin: 0 0;   /* zoom/pan via transform: translate+scale */
   box-shadow: 0 8px 60px rgba(0,0,0,0.8), 0 0 0 1px rgba(255,255,255,0.05);
   border-radius: 2px;
+  will-change: transform;
 }
 #main-canvas, #client-canvas {
   display: block;

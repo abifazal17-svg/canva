@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
@@ -11,7 +11,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const JWT_SECRET = process.env.JWT_SECRET || 'canva-clone-super-secret-key-2024';
 
-// ─── Setup Directories ───────────────────────────────────────────────────────
+// â”€â”€â”€ Setup Directories â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const UPLOADS_DIR = path.join(__dirname, 'public', 'uploads');
 const FONTS_DIR = path.join(__dirname, 'public', 'fonts');
 const IMAGES_DIR = path.join(__dirname, 'public', 'uploads', 'images');
@@ -20,7 +20,7 @@ const IMAGES_DIR = path.join(__dirname, 'public', 'uploads', 'images');
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 });
 
-// ─── Database Setup (MySQL / phpMyAdmin) ──────────────────────────────────────
+// â”€â”€â”€ Database Setup (MySQL / phpMyAdmin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 const db = mysql.createPool({
   host: process.env.DB_HOST || 'db.fr-roub1.bengt.wasmernet.com',
   port: Number(process.env.DB_PORT) || 3306, // Pastikan port sesuai dashboard Wasmer
@@ -44,20 +44,36 @@ async function initDB() {
         'INSERT INTO users (id, email, username, password, role) VALUES (?, ?, ?, ?, ?)',
         [uuidv4(), 'admin@canva.com', 'admin', hashedPw, 'admin']
       );
-      console.log('✅ Admin seeded: admin@canva.com / admin123');
+      console.log('âœ… Admin seeded: admin@canva.com / admin123');
     } else {
-      console.log('✅ Database connected & initialized successfully.');
+      console.log('âœ… Database connected & initialized successfully.');
     }
   } catch (err) {
-    console.error('❌ Error initializing DB:', err.message);
+    console.error('âŒ Error initializing DB:', err.message);
   }
 }
 initDB();
 
-// ─── Middleware ───────────────────────────────────────────────────────────────
+// â”€â”€â”€ Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
-app.use(express.static(path.join(__dirname, 'public')));
+
+// CORS â€” allow requests from any origin (needed for canvas.toDataURL on other devices)
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  next();
+});
+
+// Serve static files with permissive CORS so canvas.crossOrigin works
+app.use(express.static(path.join(__dirname, 'public'), {
+  setHeaders(res) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+  }
+}));
 
 // Multer for image uploads
 const imageStorage = multer.diskStorage({
@@ -80,7 +96,7 @@ const fontStorage = multer.diskStorage({
 });
 const uploadFont = multer({ storage: fontStorage, limits: { fileSize: 10 * 1024 * 1024 } });
 
-// ─── Auth Middleware ──────────────────────────────────────────────────────────
+// â”€â”€â”€ Auth Middleware â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 function authMiddleware(req, res, next) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token provided' });
@@ -99,7 +115,7 @@ function adminMiddleware(req, res, next) {
   });
 }
 
-// ─── Auth Routes ──────────────────────────────────────────────────────────────
+// â”€â”€â”€ Auth Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/auth/register', async (req, res) => {
   const { email, username, password } = req.body;
   if (!email || !username || !password) return res.status(400).json({ error: 'All fields required' });
@@ -141,7 +157,7 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json(req.user);
 });
 
-// ─── Design Routes (Admin) ────────────────────────────────────────────────────
+// â”€â”€â”€ Design Routes (Admin) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/admin/designs', adminMiddleware, async (req, res) => {
   try {
     const [designs] = await db.execute(`
@@ -245,7 +261,7 @@ app.delete('/api/admin/designs/:id/share/:userId', adminMiddleware, async (req, 
   }
 });
 
-// ─── Upload Routes ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Upload Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/upload/image', adminMiddleware, uploadImage.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
   res.json({ url: `/uploads/images/${req.file.filename}` });
@@ -303,7 +319,7 @@ app.delete('/api/fonts/:id', adminMiddleware, async (req, res) => {
   }
 });
 
-// ─── Client Routes ────────────────────────────────────────────────────────────
+// â”€â”€â”€ Client Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.get('/api/client/designs', authMiddleware, async (req, res) => {
   if (req.user.role === 'admin') return res.json([]);
   try {
@@ -378,13 +394,19 @@ app.get('/api/admin/users/search', adminMiddleware, async (req, res) => {
   }
 });
 
-// ─── SPA Fallback (Sintaks kompatibel Express 5) ─────────────────────────────
-// ─── SPA Fallback (Kompatibel Penuh Express 5) ─────────────────────────────────
+// â”€â”€â”€ SPA Fallback (Sintaks kompatibel Express 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// â”€â”€â”€ SPA Fallback (Kompatibel Penuh Express 5) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.use((req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`\n🚀 Server running at http://localhost:${PORT}`);
-  console.log(`👤 Admin: admin@canva.com / admin123`);
+app.listen(PORT, '0.0.0.0', () => {
+  const os = require('os');
+  const nets = os.networkInterfaces();
+  const localIp = Object.values(nets).flat().find(n => n.family === 'IPv4' && !n.internal)?.address || 'localhost';
+  console.log('\
+\ud83d\ude80 Server running at:');
+  console.log('   Local:   http://localhost:' + PORT);
+  console.log('   Network: http://' + localIp + ':' + PORT);
+  console.log('\ud83d\udc64 Admin: admin@canva.com / admin123');
 });
