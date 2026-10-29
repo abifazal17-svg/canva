@@ -1038,19 +1038,34 @@ button { cursor: pointer; border: none; background: none; }
     display: flex;
     flex-direction: column;
     align-items: stretch;
+    /* Must be relative so absolute children still work if needed */
+    position: relative;
   }
 
+  /* Override absolute positioning from .canvas-outer desktop class */
   #client-canvas-outer {
+    position: relative !important;
+    inset: auto !important;
     padding: 12px !important;
     min-height: unset !important;
     min-width: unset !important;
     display: block !important;
     width: 100% !important;
+    height: auto !important;
+    overflow: visible !important;
+    box-sizing: border-box;
   }
 
+  /* Override absolute positioning from .canvas-container desktop class */
   #client-canvas-container {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    /* Disable JS zoom/pan transform on mobile — canvas fills width naturally */
+    transform: none !important;
     display: block !important;
     width: 100% !important;
+    height: auto !important;
     border-radius: 10px;
     overflow: hidden;
     box-shadow: 0 4px 24px rgba(0,0,0,0.6);

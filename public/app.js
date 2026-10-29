@@ -44,7 +44,13 @@ function applyAdminView() {
 function applyClientView() {
   const { zoom, panX, panY } = ViewState.client;
   const c = document.getElementById('client-canvas-container');
-  if (c) c.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  // On mobile the container is position:relative and fills width naturally;
+  // skip the JS transform so the canvas doesn't get clipped or offset.
+  if (c && window.innerWidth > 768) {
+    c.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
+  } else if (c) {
+    c.style.transform = 'none';
+  }
   _setZoomDisplay('client-zoom-display', zoom);
 }
 function _setZoomDisplay(id, z) {
@@ -85,6 +91,14 @@ function resetAdminZoom()  { _centerCanvas('admin');  }
 function resetClientZoom() { _centerCanvas('client'); }
 
 function _centerCanvas(mode) {
+  // On mobile, client canvas uses natural CSS flow — no JS transform needed
+  if (mode === 'client' && window.innerWidth <= 768) {
+    ViewState.client.zoom = 1;
+    ViewState.client.panX = 0;
+    ViewState.client.panY = 0;
+    applyClientView();
+    return;
+  }
   const outer = document.getElementById(mode === 'admin' ? 'canvas-outer' : 'client-canvas-outer');
   if (!outer) return;
   const r = outer.getBoundingClientRect();
@@ -1710,6 +1724,15 @@ document.addEventListener('keyup', e => {
 
 // Click outside text to deselect
 document.getElementById('main-canvas')?.addEventListener('click', deselectText);
+
+// ─── On resize/orientation change: fix client canvas transform on mobile ───
+window.addEventListener('resize', () => {
+  const onClientEditor = document.getElementById('page-client-editor')?.classList.contains('active');
+  if (onClientEditor) {
+    // Re-apply view so mobile gets transform:none and desktop gets correct pan
+    applyClientView();
+  }
+});
 
 // ─── Init ─────────────────────────────────────────────────────────────────
 (function init() {
