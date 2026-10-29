@@ -1,0 +1,7 @@
+[build]
+command = "npm install"
+
+[command]
+name = "script"
+module = "wasmer/node"
+runner = "https://webc.org/runner/node"
