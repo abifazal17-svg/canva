@@ -661,7 +661,7 @@ function renderCanvas() {
   }
 }
 
-function renderClientCanvas() {
+function renderClientCanvas(skipIndicators) {
   const canvas = document.getElementById('client-canvas');
   if (!canvas || !App.clientDesignData) return;
   const d = App.clientDesignData;
@@ -670,7 +670,7 @@ function renderClientCanvas() {
 
   // Background
   if (d.image_url) {
-    const img = getCachedImage(d.image_url, () => renderClientCanvas());
+    const img = getCachedImage(d.image_url, () => renderClientCanvas(skipIndicators));
     if (img) ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
     else { ctx.fillStyle = '#1a1a24'; ctx.fillRect(0, 0, canvas.width, canvas.height); }
   } else {
@@ -686,8 +686,8 @@ function renderClientCanvas() {
     }
     drawTextOnCanvas(ctx, { ...t, content });
 
-    // Draw clickable dashed indicator for form-field texts
-    if (t.formName) {
+    // Draw clickable dashed indicator for form-field texts (skip when downloading)
+    if (t.formName && !skipIndicators) {
       ctx.save();
       // Measure actual rendered text height
       const fStr = `${t.italic ? 'italic ' : ''}${t.bold ? 'bold ' : '400 '}${t.fontSize || 24}px "${t.fontFamily || 'Inter'}", sans-serif`;
@@ -803,10 +803,12 @@ function getCachedImage(url, onLoad) {
   // Make relative paths absolute so they load on any device/IP
   const absUrl = url && url.startsWith('/') ? (window.location.origin + url) : url;
   if (!absUrl) return null;
+  // Check both absolute and relative key (for backwards-compat with handleImageUpload cache)
   if (imageCache[absUrl]) return imageCache[absUrl];
+  if (imageCache[url]) return imageCache[url];
   const img = new Image();
   img.crossOrigin = 'anonymous';
-  img.onload  = () => { imageCache[absUrl] = img; onLoad && onLoad(); };
+  img.onload  = () => { imageCache[absUrl] = img; imageCache[url] = img; onLoad && onLoad(); };
   img.onerror = () => { console.warn('[DesignCraft] Failed to load image:', absUrl); };
   img.src = absUrl;
   return null;
@@ -1315,7 +1317,10 @@ async function handleImageUpload(event) {
       const canvas = document.getElementById('main-canvas');
       canvas.width = App.canvasW;
       canvas.height = App.canvasH;
-      imageCache[App.imageUrl] = img;
+      // Store with both relative and absolute URL keys so getCachedImage finds it
+      const absUrl = res.url.startsWith('/') ? (window.location.origin + res.url) : res.url;
+      imageCache[res.url] = img;
+      imageCache[absUrl] = img;
       renderCanvas();
     };
     img.src = res.url;
@@ -1565,26 +1570,52 @@ async function downloadClientDesign() {
   const canvas = document.getElementById('client-canvas');
   if (!canvas || !App.clientDesignData) return;
 
-  // 1. Temporarily deselect so no outline/handles show
-  const prevSelected = App.selectedTextId;
-  App.selectedTextId = null;
-
-  // 2. Re-render canvas cleanly (no dashed click indicators)
-  renderClientCanvas();
-
-  // Let paint tick finish
-  await new Promise(r => setTimeout(r, 80));
+  showLoader('Menyiapkan download...');
 
   try {
+    // 1. Ensure the background image is fully loaded into cache first
+    const d = App.clientDesignData;
+    if (d.image_url) {
+      await new Promise((resolve) => {
+        const absUrl = d.image_url.startsWith('/') ? (window.location.origin + d.image_url) : d.image_url;
+        // Already cached?
+        if (imageCache[absUrl] || imageCache[d.image_url]) return resolve();
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+          imageCache[absUrl] = img;
+          imageCache[d.image_url] = img;
+          resolve();
+        };
+        img.onerror = () => resolve(); // resolve anyway so download still proceeds
+        img.src = absUrl;
+      });
+    }
+
+    // 2. Render canvas cleanly WITHOUT dashed indicators and WITHOUT selection
+    const prevSelected = App.selectedTextId;
+    App.selectedTextId = null;
+    renderClientCanvas(true); // true = skipIndicators
+
+    // 3. Wait a paint tick for canvas to flush
+    await new Promise(r => setTimeout(r, 80));
+
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
     const link = document.createElement('a');
     link.download = `${App.clientDesignData.name || 'design'}.jpg`;
     link.href = dataUrl;
     link.click();
+
+    hideLoader();
     toast('Design berhasil didownload (.jpg)!', 'success');
-  } finally {
-    // Restore selection state
+
+    // 4. Restore canvas with indicators
     App.selectedTextId = prevSelected;
+    renderClientCanvas();
+
+  } catch (err) {
+    hideLoader();
+    toast('Gagal download: ' + err.message, 'error');
     renderClientCanvas();
   }
 }
