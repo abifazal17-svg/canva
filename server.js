@@ -22,10 +22,10 @@ const IMAGES_DIR = path.join(__dirname, 'public', 'uploads', 'images');
 
 // ─── Database Setup (MySQL / phpMyAdmin) ──────────────────────────────────────
 const db = mysql.createPool({
-  host: 'localhost',
-  user: 'root',      // Sesuaikan username database Anda (default XAMPP: root)
-  password: '',      // Sesuaikan password database Anda (default XAMPP: kosong)
-  database: 'canva_clone',
+  host: 'db.fr-roub1.bengt.wasmernet.com',
+  user: 'user_a7d99fd8',      // Sesuaikan username database Anda (default XAMPP: root)
+  password: 'pw_5fZnvLKFBu19OGf6G6nhM6qzyDKk01T6',      // Sesuaikan password database Anda (default XAMPP: kosong)
+  database: 'db_39444a4c',
   waitForConnections: true,
   connectionLimit: 10,
   queueLimit: 0
