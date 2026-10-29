@@ -44,12 +44,27 @@ function applyAdminView() {
 function applyClientView() {
   const { zoom, panX, panY } = ViewState.client;
   const c = document.getElementById('client-canvas-container');
-  // On mobile the container is position:relative and fills width naturally;
-  // skip the JS transform so the canvas doesn't get clipped or offset.
-  if (c && window.innerWidth > 768) {
+  if (!c) return;
+
+  if (window.innerWidth <= 768) {
+    // Mobile: scale from top-center so canvas expands downward naturally.
+    // No translate — page scroll handles vertical movement.
+    c.style.transformOrigin = 'top center';
+    c.style.transform = zoom === 1 ? 'none' : `scale(${zoom})`;
+    // When zoomed, expand the wrapper so the page can still scroll to see full canvas
+    const wrapper = document.getElementById('client-canvas-wrapper');
+    if (wrapper) {
+      if (zoom > 1) {
+        const canvasEl = document.getElementById('client-canvas');
+        const naturalH = canvasEl ? canvasEl.offsetHeight : 0;
+        wrapper.style.paddingBottom = `${naturalH * (zoom - 1)}px`;
+      } else {
+        wrapper.style.paddingBottom = '';
+      }
+    }
+  } else {
+    c.style.transformOrigin = '0 0';
     c.style.transform = `translate(${panX}px,${panY}px) scale(${zoom})`;
-  } else if (c) {
-    c.style.transform = 'none';
   }
   _setZoomDisplay('client-zoom-display', zoom);
 }
@@ -187,8 +202,9 @@ function _bindPanZoom(outerId, mode) {
   }, { passive: true });
 
   outer.addEventListener('touchmove', e => {
-    e.preventDefault();
     if (e.touches.length === 2 && ViewState.pinchDist !== null) {
+      // ── Pinch zoom: always intercept (2-finger gesture) ──
+      e.preventDefault();
       const dist = getPinchDist(e.touches);
       const midX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
       const midY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
@@ -197,12 +213,25 @@ function _bindPanZoom(outerId, mode) {
       zoomAtPoint(dz, midX, midY, mode);
       ViewState.pinchDist = dist;
     } else if (e.touches.length === 1 && touchPanStart) {
+      // ── Single-finger pan (only when zoomed in) ──
+      // On mobile client mode: don't preventDefault so page can still scroll.
+      // On admin mode or desktop: prevent default to enable canvas pan.
+      const isMobileClient = (mode === 'client' && window.innerWidth <= 768);
+      if (!isMobileClient) e.preventDefault();
       const dx = e.touches[0].clientX - touchPanStart.x;
       const dy = e.touches[0].clientY - touchPanStart.y;
-      ViewState[mode].panX = touchPanStart.panX + dx;
-      ViewState[mode].panY = touchPanStart.panY + dy;
-      if (mode === 'admin') applyAdminView(); else applyClientView();
+      if (mode === 'admin') {
+        ViewState[mode].panX = touchPanStart.panX + dx;
+        ViewState[mode].panY = touchPanStart.panY + dy;
+        applyAdminView();
+      } else {
+        // Mobile client: only allow horizontal pan (vertical = page scroll)
+        ViewState[mode].panX = touchPanStart.panX + dx;
+        applyClientView();
+      }
     }
+    // Single-finger on client mobile without touchPanStart: do nothing,
+    // let the browser handle page scroll naturally.
   }, { passive: false });
 
   outer.addEventListener('touchend', e => {
@@ -817,30 +846,46 @@ const imageCache = {};
 /**
  * Load an image URL into a canvas-safe HTMLImageElement.
  *
- * Strategy: Use fetch() with cache:'reload' to always get a fresh response
- * that includes CORS headers, then convert to a Blob URL.  This sidesteps
- * the classic browser-cache-poisoning problem where the same URL is first
- * loaded by an <img> tag (no CORS request) and later re-used by a canvas
- * (needs CORS) — the cached non-CORS response would make toDataURL throw.
+ * Handles two cases:
+ *  1. data: URLs (base64)  — loaded directly, no network request needed.
+ *  2. http/https/relative  — fetched with cache:'reload' to bypass any non-CORS
+ *     browser cache entry (the classic cache-poisoning problem where an <img>
+ *     tag loads the URL without crossOrigin, caches it, then canvas reuse fails).
  *
- * @param {string} url     - relative or absolute image URL
+ * @param {string}   url    - data URL, relative path, or absolute URL
  * @param {Function} onLoad - called once the image is ready to draw
- * @returns {HTMLImageElement|null} cached image element, or null while loading
+ * @returns {HTMLImageElement|null} cached element, or null while loading
  */
 function getCachedImage(url, onLoad) {
   if (!url) return null;
 
-  // Normalise to absolute URL so cache keys are consistent across devices
+  // ── data: URL — load directly, no fetch needed ──────────────────────────
+  if (url.startsWith('data:')) {
+    if (imageCache[url]) return imageCache[url];
+    if (imageCache['__loading__' + url]) return null;
+    imageCache['__loading__' + url] = true;
+    const img = new Image();
+    img.onload = () => {
+      imageCache[url] = img;
+      delete imageCache['__loading__' + url];
+      onLoad && onLoad();
+    };
+    img.onerror = () => {
+      delete imageCache['__loading__' + url];
+      console.warn('[DesignCraft] Failed to load data URL image');
+    };
+    img.src = url;
+    return null;
+  }
+
+  // ── Regular URL — fetch with cache-busting to guarantee CORS headers ────
+  // Normalise to absolute URL so cache key is consistent across devices
   const absUrl = url.startsWith('/') ? (window.location.origin + url) : url;
 
-  // Already cached?
   if (imageCache[absUrl]) return imageCache[absUrl];
-
-  // Mark as "loading" with a sentinel so concurrent calls don't fire multiple fetches
-  imageCache[absUrl] = null;   // placeholder — truthy check would fail, we need !== undefined
+  if (imageCache['__loading__' + absUrl]) return null;   // fetch already in flight
   imageCache['__loading__' + absUrl] = true;
 
-  // Use fetch to get a CORS-safe blob, bypassing any non-CORS browser cache entry
   fetch(absUrl, { cache: 'reload' })
     .then(res => {
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -851,9 +896,9 @@ function getCachedImage(url, onLoad) {
       const img = new Image();
       img.onload = () => {
         imageCache[absUrl] = img;
-        imageCache[url]    = img;   // also store under relative key for convenience
+        imageCache[url]    = img;
         delete imageCache['__loading__' + absUrl];
-        URL.revokeObjectURL(blobUrl); // free memory after img has it
+        URL.revokeObjectURL(blobUrl);
         onLoad && onLoad();
       };
       img.onerror = () => {
@@ -864,13 +909,12 @@ function getCachedImage(url, onLoad) {
       img.src = blobUrl;
     })
     .catch(err => {
-      // Network error — remove sentinel so next render retries
       delete imageCache[absUrl];
       delete imageCache['__loading__' + absUrl];
-      console.warn('[DesignCraft] fetch failed for image, will retry:', absUrl, err.message);
+      console.warn('[DesignCraft] fetch failed, will retry on next render:', absUrl, err.message);
     });
 
-  return null;  // not ready yet; onLoad will trigger a re-render
+  return null;
 }
 
 function drawGrid(ctx, w, h) {
@@ -1365,10 +1409,10 @@ async function handleImageUpload(event) {
     const fd = new FormData();
     fd.append('image', file);
     const res = await api('POST', '/api/upload/image', fd, true);
+    // res.url is now a base64 data URL — store as App.imageUrl directly
     App.imageUrl = res.url;
 
-    // Use the uploaded file directly as a Blob to avoid CORS cache issues.
-    // This guarantees the cached image is canvas-safe (no tainted-canvas risk).
+    // Load from original file blob to get dimensions (fast, no network round-trip)
     const blobUrl = URL.createObjectURL(file);
     const img = new Image();
     img.onload = () => {
@@ -1377,12 +1421,10 @@ async function handleImageUpload(event) {
       document.getElementById('canvas-width-input').value = App.canvasW;
       document.getElementById('canvas-height-input').value = App.canvasH;
       const canvas = document.getElementById('main-canvas');
-      canvas.width = App.canvasW;
+      canvas.width  = App.canvasW;
       canvas.height = App.canvasH;
-      // Cache under both relative and absolute URL keys
-      const absUrl = res.url.startsWith('/') ? (window.location.origin + res.url) : res.url;
+      // Cache under the data URL key so getCachedImage finds it immediately
       imageCache[res.url] = img;
-      imageCache[absUrl]  = img;
       URL.revokeObjectURL(blobUrl);
       renderCanvas();
     };

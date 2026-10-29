@@ -1061,13 +1061,14 @@ button { cursor: pointer; border: none; background: none; }
     position: relative !important;
     top: auto !important;
     left: auto !important;
-    /* Disable JS zoom/pan transform on mobile — canvas fills width naturally */
-    transform: none !important;
+    /* transform is now managed by JS (applyClientView) for pinch zoom */
+    transform-origin: top center;
     display: block !important;
     width: 100% !important;
     height: auto !important;
     border-radius: 10px;
-    overflow: hidden;
+    /* overflow:visible so pinch-zoomed canvas isn't clipped */
+    overflow: visible !important;
     box-shadow: 0 4px 24px rgba(0,0,0,0.6);
   }
 

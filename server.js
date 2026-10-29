@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const bcrypt = require('bcryptjs');
@@ -37,6 +37,9 @@ const db = mysql.createPool({
 // Seed Admin User & Check DB Connection
 async function initDB() {
   try {
+  // Ensure image_url column is LONGTEXT so base64 data URLs fit (safe on every startup)
+  try { await db.execute(`ALTER TABLE designs MODIFY COLUMN image_url LONGTEXT`); } catch (_) {}
+
     const [rows] = await db.execute('SELECT id FROM users WHERE role = ?', ['admin']);
     if (rows.length === 0) {
       const hashedPw = bcrypt.hashSync('admin123', 10);
@@ -75,17 +78,13 @@ app.use(express.static(path.join(__dirname, 'public'), {
   }
 }));
 
-// Multer for image uploads
-const imageStorage = multer.diskStorage({
-  destination: IMAGES_DIR,
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    cb(null, `img-${uuidv4()}${ext}`);
-  }
+// Multer — memory storage for images (base64 stored in DB, no disk dependency)
+const uploadImage = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }
 });
-const uploadImage = multer({ storage: imageStorage, limits: { fileSize: 20 * 1024 * 1024 } });
 
-// Multer for font uploads
+// Multer for font uploads (fonts still go to disk — they are loaded via CSS @font-face URL)
 const fontStorage = multer.diskStorage({
   destination: FONTS_DIR,
   filename: (req, file, cb) => {
@@ -264,7 +263,12 @@ app.delete('/api/admin/designs/:id/share/:userId', adminMiddleware, async (req, 
 // â”€â”€â”€ Upload Routes â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 app.post('/api/upload/image', adminMiddleware, uploadImage.single('image'), (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-  res.json({ url: `/uploads/images/${req.file.filename}` });
+  // Convert to base64 data URL — stored directly in MySQL image_url field.
+  // This makes images survive server restarts / ephemeral Wasmer filesystem resets.
+  const mime    = req.file.mimetype || 'image/jpeg';
+  const b64     = req.file.buffer.toString('base64');
+  const dataUrl = `data:${mime};base64,${b64}`;
+  res.json({ url: dataUrl });
 });
 
 app.post('/api/upload/font', adminMiddleware, uploadFont.single('font'), async (req, res) => {
