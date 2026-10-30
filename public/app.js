@@ -1156,15 +1156,18 @@ function showTextProperties(t) {
   document.getElementById('text-properties').classList.remove('hidden');
   document.getElementById('btn-delete-text').classList.remove('hidden');
 
+  const fs = Number(Number(t.fontSize || 24).toFixed(2));
   document.getElementById('prop-content').value = t.content || '';
   document.getElementById('prop-form-name').value = t.formName || '';
   document.getElementById('prop-font').value = t.fontFamily || 'Inter';
-  document.getElementById('prop-font-size').value = t.fontSize || 24;
-  document.getElementById('font-size-val').textContent = t.fontSize || 24;
+  document.getElementById('prop-font-size').value = fs;
+  const fsNumEl = document.getElementById('prop-font-size-num');
+  if (fsNumEl) fsNumEl.value = fs;
+  document.getElementById('font-size-val').textContent = fs;
   document.getElementById('prop-color').value = t.color || '#ffffff';
   document.getElementById('prop-color-hex').value = t.color || '#ffffff';
-  document.getElementById('prop-x').value = Math.round(t.x || 0);
-  document.getElementById('prop-y').value = Math.round(t.y || 0);
+  document.getElementById('prop-x').value = Number(Number(t.x || 0).toFixed(2));
+  document.getElementById('prop-y').value = Number(Number(t.y || 0).toFixed(2));
   document.getElementById('prop-opacity').value = t.opacity !== undefined ? t.opacity : 100;
   document.getElementById('opacity-val').textContent = t.opacity !== undefined ? t.opacity : 100;
   document.getElementById('prop-shadow').checked = !!t.shadow;
@@ -1205,7 +1208,10 @@ function updateSelectedText(prop, value) {
     if (prop === 'content') content.textContent = value;
     else if (prop === 'x') el.style.left = value + 'px';
     else if (prop === 'y') el.style.top = value + 'px';
-    else content.style.cssText = buildTextStyle(t);
+    else {
+      if (prop === 'fontSize') el.style.minHeight = value + 'px';
+      content.style.cssText = buildTextStyle(t);
+    }
   }
 
   if (prop === 'shadow') {
@@ -1221,8 +1227,15 @@ function updateSelectedText(prop, value) {
 }
 
 function updateFontSize(val) {
-  document.getElementById('font-size-val').textContent = val;
-  updateSelectedText('fontSize', parseInt(val));
+  const num = parseFloat(val);
+  if (isNaN(num) || num <= 0) return;
+  const precise = Number(num.toFixed(2));
+  document.getElementById('font-size-val').textContent = precise;
+  const rangeEl = document.getElementById('prop-font-size');
+  const numEl   = document.getElementById('prop-font-size-num');
+  if (rangeEl && document.activeElement !== rangeEl) rangeEl.value = precise;
+  if (numEl   && document.activeElement !== numEl)   numEl.value   = precise;
+  updateSelectedText('fontSize', precise);
 }
 
 function updateOpacity(val) {
@@ -1261,7 +1274,7 @@ function startDrag(e, id) {
   if (!t) return;
 
   const startX = e.clientX, startY = e.clientY;
-  const origX = t.x, origY = t.y;
+  const origX = Number(t.x) || 0, origY = Number(t.y) || 0;
   let moved = false;
 
   function onMove(e2) {
@@ -1269,14 +1282,14 @@ function startDrag(e, id) {
     const z  = ViewState.admin.zoom;    // divide by zoom so drag speed matches visual
     const dx = (e2.clientX - startX) / z;
     const dy = (e2.clientY - startY) / z;
-    t.x = Math.max(0, origX + dx);
-    t.y = Math.max(0, origY + dy);
+    t.x = Number(Math.max(0, origX + dx).toFixed(2));
+    t.y = Number(Math.max(0, origY + dy).toFixed(2));
     const el = document.getElementById(`te-${id}`);
     if (el) { el.style.left = t.x + 'px'; el.style.top = t.y + 'px'; }
     const px = document.getElementById('prop-x');
     const py = document.getElementById('prop-y');
-    if (px) px.value = Math.round(t.x);
-    if (py) py.value = Math.round(t.y);
+    if (px) px.value = t.x;
+    if (py) py.value = t.y;
     renderCanvas();
   }
 
@@ -1290,12 +1303,19 @@ function startDrag(e, id) {
   document.addEventListener('mouseup',   onUp);
 }
 
-// ─── Resize Handle (8-directional, zoom-aware) ───────────────────────────
+// ─── Resize Handle (8-directional, zoom-aware, 0.01px precision) ─────────
 /**
  * dir: 'nw'|'n'|'ne'|'e'|'se'|'s'|'sw'|'w'
  *
- * Horizontal handles (e/w/ne/nw/se/sw) → resize width (and x for west side)
- * Vertical  handles (n/s)              → resize fontSize (text height is font-driven)
+ * Corner handles ('ne', 'se', 'nw', 'sw') → uniform scale (fontSize & width)
+ * with the opposite corner of the text locked as fixed anchor point:
+ *   - 'ne' (top-right)    → bottom-left text anchor fixed
+ *   - 'se' (bottom-right) → top-left text anchor fixed
+ *   - 'nw' (top-left)     → bottom-right text anchor fixed
+ *   - 'sw' (bottom-left)  → top-right text anchor fixed
+ *
+ * Horizontal edge handles ('e', 'w') → resize textbox width only
+ * Vertical edge handles ('n', 's')   → scale fontSize with opposite vertical edge fixed
  */
 function startResizeHandle(e, id, dir) {
   e.preventDefault();
@@ -1304,49 +1324,146 @@ function startResizeHandle(e, id, dir) {
   if (!t) return;
   pushUndo();
 
-  const startX   = e.clientX;
-  const startY   = e.clientY;
-  const origX    = t.x;
-  const origW    = t.width    || 200;
-  const origFS   = t.fontSize || 24;
+  const startX = e.clientX;
+  const startY = e.clientY;
+  const origX  = Number(t.x) || 0;
+  const origY  = Number(t.y) || 0;
+  const origW  = Number(t.width) || 200;
+  const origFS = Number(t.fontSize) || 24;
+
+  const el    = document.getElementById(`te-${id}`);
+  const initZ = ZoomState.admin || 1;
+  const origH = el ? (el.getBoundingClientRect().height / initZ) : (origFS * 1.3);
+
+  // Measure actual rendered text width inside the box so the text's own corner stays fixed
+  let origTextW = origW;
+  const contentEl = el ? el.querySelector('.text-content') : null;
+  if (contentEl && contentEl.firstChild) {
+    try {
+      const range = document.createRange();
+      range.selectNodeContents(contentEl);
+      const rRect = range.getBoundingClientRect();
+      if (rRect.width > 0) {
+        origTextW = Math.min(origW, rRect.width / initZ);
+      }
+    } catch (_) {}
+  }
+
+  const align = t.align || 'left';
+  let relTextLeft  = 0;
+  let relTextRight = origTextW;
+  if (align === 'center') {
+    relTextLeft  = (origW - origTextW) / 2;
+    relTextRight = (origW + origTextW) / 2;
+  } else if (align === 'right') {
+    relTextLeft  = origW - origTextW;
+    relTextRight = origW;
+  }
+
+  const isCorner = (dir === 'nw' || dir === 'ne' || dir === 'se' || dir === 'sw');
 
   function onMove(e2) {
-    const z  = ZoomState.admin;
+    const z  = ZoomState.admin || 1;
     const dx = (e2.clientX - startX) / z;
     const dy = (e2.clientY - startY) / z;
 
-    // ─ Horizontal (width) ─
-    if (dir.includes('e')) {
-      t.width = Math.max(40, origW + dx);
-    } else if (dir.includes('w')) {
-      const newW = Math.max(40, origW - dx);
-      t.x    = origX + (origW - newW);   // keep right edge fixed
+    if (isCorner) {
+      // Direction signs pointing outward from the fixed anchor corner
+      const sx = dir.includes('e') ? 1 : -1;
+      const sy = dir.includes('s') ? 1 : -1;
+
+      // Project cursor movement along outward axes for smooth 0.01px scaling
+      const deltaOut = (sx * dx) + (sy * dy);
+      const baseDim  = Math.max(30, origTextW + origH);
+      const rawScale = Math.max(1 / origFS, 1 + deltaOut / baseDim);
+
+      const newFS       = Math.max(1, Number((origFS * rawScale).toFixed(2)));
+      const actualScale = newFS / origFS;
+      let   newW        = Math.max(20, Number((origW * actualScale).toFixed(2)));
+      const newH        = origH * actualScale;
+
+      t.fontSize = newFS;
+      t.width    = newW;
+
+      // Lock the opposite text corner as fixed anchor
+      if (dir === 'ne') {
+        // Drag top-right → bottom-left text anchor stays fixed
+        t.x = Number((origX + relTextLeft * (1 - actualScale)).toFixed(2));
+        t.y = Number((origY + origH - newH).toFixed(2));
+      } else if (dir === 'se') {
+        // Drag bottom-right → top-left text anchor stays fixed
+        t.x = Number((origX + relTextLeft * (1 - actualScale)).toFixed(2));
+        t.y = Number(origY.toFixed(2));
+      } else if (dir === 'nw') {
+        // Drag top-left → bottom-right text anchor stays fixed
+        t.x = Number((origX + relTextRight * (1 - actualScale)).toFixed(2));
+        t.y = Number((origY + origH - newH).toFixed(2));
+      } else if (dir === 'sw') {
+        // Drag bottom-left → top-right text anchor stays fixed
+        t.x = Number((origX + relTextRight * (1 - actualScale)).toFixed(2));
+        t.y = Number(origY.toFixed(2));
+      }
+    } else if (dir === 'e') {
+      // Right edge → adjust box width only, left stays fixed
+      t.width = Math.max(20, Number((origW + dx).toFixed(2)));
+    } else if (dir === 'w') {
+      // Left edge → adjust box width only, right edge stays fixed
+      const newW = Math.max(20, Number((origW - dx).toFixed(2)));
+      t.x     = Number((origX + (origW - newW)).toFixed(2));
       t.width = newW;
+    } else if (dir === 'n') {
+      // Top edge → scale fontSize with bottom anchor fixed
+      const rawScale    = Math.max(1 / origFS, 1 - dy / Math.max(20, origH));
+      const newFS       = Math.max(1, Number((origFS * rawScale).toFixed(2)));
+      const actualScale = newFS / origFS;
+      const newH        = origH * actualScale;
+      t.fontSize = newFS;
+      t.width    = Math.max(20, Number((origW * actualScale).toFixed(2)));
+      t.x        = Number((origX + relTextLeft * (1 - actualScale)).toFixed(2));
+      t.y        = Number((origY + origH - newH).toFixed(2));
+    } else if (dir === 's') {
+      // Bottom edge → scale fontSize with top anchor fixed
+      const rawScale    = Math.max(1 / origFS, 1 + dy / Math.max(20, origH));
+      const newFS       = Math.max(1, Number((origFS * rawScale).toFixed(2)));
+      const actualScale = newFS / origFS;
+      t.fontSize = newFS;
+      t.width    = Math.max(20, Number((origW * actualScale).toFixed(2)));
+      t.x        = Number((origX + relTextLeft * (1 - actualScale)).toFixed(2));
+      t.y        = Number(origY.toFixed(2));
     }
 
-    // ─ Vertical (font size) ─
-    if (dir === 'n' || dir === 'nw' || dir === 'ne') {
-      t.fontSize = Math.max(6, Math.round(origFS - dy * 0.7));
-    } else if (dir === 's' || dir === 'sw' || dir === 'se') {
-      t.fontSize = Math.max(6, Math.round(origFS + dy * 0.7));
-    }
-
-    const el = document.getElementById(`te-${id}`);
-    if (el) {
-      el.style.width    = (t.width || origW) + 'px';
-      el.style.left     = t.x + 'px';
-      el.style.minHeight = (t.fontSize || origFS) + 'px';
-      const cnt = el.querySelector('.text-content');
+    const curEl = document.getElementById(`te-${id}`);
+    if (curEl) {
+      curEl.style.width     = t.width + 'px';
+      curEl.style.left      = t.x + 'px';
+      curEl.style.top       = t.y + 'px';
+      curEl.style.minHeight = t.fontSize + 'px';
+      const cnt = curEl.querySelector('.text-content');
       if (cnt) cnt.style.cssText = buildTextStyle(t);
+
+      // Guard against accidental line-wrap caused by sub-pixel font hinting during uniform scale
+      if (isCorner || dir === 'n' || dir === 's') {
+        const actualScale = t.fontSize / origFS;
+        const expectedH   = origH * actualScale;
+        const renderedH   = curEl.getBoundingClientRect().height / z;
+        if (renderedH > expectedH * 1.25) {
+          t.width = Number((t.width + Math.max(4, t.fontSize * 0.25)).toFixed(2));
+          curEl.style.width = t.width + 'px';
+        }
+      }
     }
 
-    // Sync property panel
-    const fsEl = document.getElementById('prop-font-size');
-    const fsVal = document.getElementById('font-size-val');
-    const pxEl  = document.getElementById('prop-x');
-    if (fsEl)  fsEl.value = t.fontSize || origFS;
-    if (fsVal) fsVal.textContent = t.fontSize || origFS;
-    if (pxEl)  pxEl.value = Math.round(t.x);
+    // Sync property panel with 0.01px precision
+    const fsEl    = document.getElementById('prop-font-size');
+    const fsNumEl = document.getElementById('prop-font-size-num');
+    const fsVal   = document.getElementById('font-size-val');
+    const pxEl    = document.getElementById('prop-x');
+    const pyEl    = document.getElementById('prop-y');
+    if (fsEl)    fsEl.value        = t.fontSize;
+    if (fsNumEl) fsNumEl.value     = t.fontSize;
+    if (fsVal)   fsVal.textContent = t.fontSize;
+    if (pxEl)    pxEl.value        = t.x;
+    if (pyEl)    pyEl.value        = t.y;
 
     renderCanvas();
   }
