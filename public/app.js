@@ -983,9 +983,15 @@ function syncCharStylesOnEdit(t, oldStr, newStr) {
 }
 
 function renderStyledTextHTML(t) {
-  const text = t.content || 'Teks Baru';
-  if (!t.content || !Array.isArray(t.charStyles) || !t.charStyles.length) {
-    return escHtml(text);
+  const text = t.content || '';
+  if (!text) return '';
+  if (!Array.isArray(t.charStyles) || !t.charStyles.length) {
+    const css = [
+      `font-weight:${t.bold ? '700' : '400'}`,
+      `font-style:${t.italic ? 'italic' : 'normal'}`,
+      `text-decoration:${t.underline ? 'underline' : 'none'}`
+    ].join(';');
+    return `<span data-start="0" data-end="${text.length}" style="${css}">${escHtml(text)}</span>`;
   }
   const styles = ensureCharStyles(t);
   let html = '';
@@ -1003,7 +1009,7 @@ function renderStyledTextHTML(t) {
     }
     const chunk = escHtml(text.slice(i, j));
     const css = [
-      `font-weight:${st.b ? 'bold' : '400'}`,
+      `font-weight:${st.b ? '700' : '400'}`,
       `font-style:${st.i ? 'italic' : 'normal'}`,
       `text-decoration:${st.u ? 'underline' : 'none'}`
     ].join(';');
@@ -1016,7 +1022,7 @@ function renderStyledTextHTML(t) {
 function getStyledCharFont(t, b, i) {
   return [
     i ? 'italic' : '',
-    b ? 'bold' : '400',
+    b ? '700' : '400',
     `${t.fontSize || 24}px`,
     `"${t.fontFamily || 'Inter'}", sans-serif`
   ].filter(Boolean).join(' ');
@@ -1203,17 +1209,135 @@ function clearTextOverlay() {
 }
 
 function getSelectionOffsetsInElement(containerEl) {
+  if (!containerEl) return null;
   const sel = window.getSelection();
-  if (!sel || !sel.rangeCount || sel.isCollapsed) return null;
+  if (!sel || !sel.rangeCount) return null;
   const range = sel.getRangeAt(0);
-  if (!containerEl.contains(range.commonAncestorContainer)) return null;
-  const preRange = document.createRange();
-  preRange.selectNodeContents(containerEl);
-  preRange.setEnd(range.startContainer, range.startOffset);
-  const start = preRange.toString().length;
-  const selectedLen = range.toString().length;
-  if (selectedLen <= 0) return null;
-  return { start, end: start + selectedLen };
+  if (!containerEl.contains(range.startContainer) || !containerEl.contains(range.endContainer)) {
+    return null;
+  }
+  const preStart = document.createRange();
+  preStart.selectNodeContents(containerEl);
+  preStart.setEnd(range.startContainer, range.startOffset);
+  const start = preStart.toString().length;
+
+  const preEnd = document.createRange();
+  preEnd.selectNodeContents(containerEl);
+  preEnd.setEnd(range.endContainer, range.endOffset);
+  const end = preEnd.toString().length;
+
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end)
+  };
+}
+
+function setSelectionOffsetsInElement(containerEl, start, end) {
+  if (!containerEl) return;
+  const sel = window.getSelection();
+  if (!sel) return;
+  const range = document.createRange();
+  let charIdx = 0;
+  let startNode = null, startOffset = 0;
+  let endNode = null, endOffset = 0;
+
+  function traverse(node) {
+    if (node.nodeType === Node.TEXT_NODE) {
+      const nextIdx = charIdx + node.length;
+      if (!startNode && start >= charIdx && start <= nextIdx) {
+        startNode = node;
+        startOffset = start - charIdx;
+      }
+      if (!endNode && end >= charIdx && end <= nextIdx) {
+        endNode = node;
+        endOffset = end - charIdx;
+      }
+      charIdx = nextIdx;
+    } else if (node.nodeName === 'BR') {
+      charIdx += 1;
+    } else {
+      for (let i = 0; i < node.childNodes.length; i++) {
+        traverse(node.childNodes[i]);
+        if (startNode && endNode) return;
+      }
+    }
+  }
+
+  traverse(containerEl);
+  if (!startNode) {
+    startNode = containerEl;
+    startOffset = containerEl.childNodes.length;
+  }
+  if (!endNode) {
+    endNode = startNode;
+    endOffset = startOffset;
+  }
+  try {
+    range.setStart(startNode, startOffset);
+    range.setEnd(endNode, endOffset);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) {}
+}
+
+function selectWordAtPoint(contentEl, clientX, clientY) {
+  let caretRange = null;
+  if (document.caretRangeFromPoint) {
+    caretRange = document.caretRangeFromPoint(clientX, clientY);
+  } else if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos) {
+      caretRange = document.createRange();
+      caretRange.setStart(pos.offsetNode, pos.offset);
+      caretRange.collapse(true);
+    }
+  }
+  if (!caretRange || !contentEl.contains(caretRange.startContainer)) return null;
+  const pre = document.createRange();
+  pre.selectNodeContents(contentEl);
+  pre.setEnd(caretRange.startContainer, caretRange.startOffset);
+  const clickIdx = pre.toString().length;
+  const fullText = contentEl.textContent || '';
+  if (!fullText.length) return null;
+
+  let wStart = Math.min(clickIdx, fullText.length - 1);
+  let wEnd   = wStart;
+  if (/\S/.test(fullText[wStart])) {
+    while (wStart > 0 && /\S/.test(fullText[wStart - 1])) wStart--;
+    while (wEnd < fullText.length && /\S/.test(fullText[wEnd])) wEnd++;
+    setSelectionOffsetsInElement(contentEl, wStart, wEnd);
+    return { start: wStart, end: wEnd };
+  } else {
+    setSelectionOffsetsInElement(contentEl, clickIdx, clickIdx);
+    return { start: clickIdx, end: clickIdx };
+  }
+}
+
+function attachResizeHandlesToElement(el, textId) {
+  el.querySelectorAll('.resize-handle').forEach(h => h.remove());
+  ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
+    const handle = document.createElement('div');
+    handle.className = `resize-handle resize-handle-${dir}`;
+    el.appendChild(handle);
+    handle.addEventListener('mousedown', e => startResizeHandle(e, textId, dir));
+  });
+}
+
+let _lastCanvasClickTime = 0;
+let _lastCanvasClickId   = null;
+
+function enterCanvasTextSelectMode(el, content, t, e) {
+  el.classList.add('selecting-text');
+  content.contentEditable = 'true';
+  content.spellcheck = false;
+  content.focus();
+  if (e && typeof e.clientX === 'number') {
+    const wordOffsets = selectWordAtPoint(content, e.clientX, e.clientY);
+    if (wordOffsets && wordOffsets.start < wordOffsets.end) {
+      App.textSelection = { id: t.id, start: wordOffsets.start, end: wordOffsets.end, source: 'canvas' };
+      updateStyleButtonsForSelection(t);
+    }
+  }
 }
 
 function createTextElement(t) {
@@ -1230,22 +1354,18 @@ function createTextElement(t) {
   content.className = 'text-content';
   content.style.cssText = buildTextStyle(t);
   content.innerHTML = renderStyledTextHTML(t);
+  content.addEventListener('input', () => handleRichContentInput(content, 'canvas'));
   el.appendChild(content);
 
   if (t.id === App.selectedTextId) {
-    ['nw','n','ne','e','se','s','sw','w'].forEach(dir => {
-      const handle = document.createElement('div');
-      handle.className = `resize-handle resize-handle-${dir}`;
-      el.appendChild(handle);
-      handle.addEventListener('mousedown', e => startResizeHandle(e, t.id, dir));
-    });
+    attachResizeHandlesToElement(el, t.id);
   }
 
-  // Double-click on canvas text → enable direct text highlighting on canvas
+  // Double-click on canvas text → enable direct text highlighting & word selection on canvas
   el.addEventListener('dblclick', e => {
     if (e.target.classList.contains('resize-handle')) return;
     e.stopPropagation();
-    el.classList.add('selecting-text');
+    enterCanvasTextSelectMode(el, content, t, e);
   });
 
   el.addEventListener('mouseup', () => {
@@ -1253,10 +1373,6 @@ function createTextElement(t) {
       const offsets = getSelectionOffsetsInElement(content);
       if (offsets && offsets.start < offsets.end) {
         App.textSelection = { id: t.id, start: offsets.start, end: offsets.end, source: 'canvas' };
-        const ta = document.getElementById('prop-content');
-        if (ta) {
-          ta.setSelectionRange(offsets.start, offsets.end);
-        }
         updateStyleButtonsForSelection(t);
       }
     }
@@ -1274,7 +1390,20 @@ function createTextElement(t) {
       altDuplicateDrag(e, t);
       return;
     }
+
+    const now = Date.now();
+    const isDoubleClick = (e.detail >= 2) || (_lastCanvasClickId === t.id && (now - _lastCanvasClickTime) < 380);
+    _lastCanvasClickTime = now;
+    _lastCanvasClickId   = t.id;
+
     selectText(t.id);
+
+    if (isDoubleClick) {
+      e.stopPropagation();
+      enterCanvasTextSelectMode(el, content, t, e);
+      return;
+    }
+
     startDrag(e, t.id);
   });
 
@@ -1287,7 +1416,7 @@ function buildTextStyle(t) {
   return `
     font-family: "${t.fontFamily || 'Inter'}", sans-serif;
     font-size: ${t.fontSize || 24}px;
-    font-weight: ${t.bold ? 'bold' : '400'};
+    font-weight: ${t.bold ? '700' : '400'};
     font-style: ${t.italic ? 'italic' : 'normal'};
     text-decoration: ${hasCharStyles ? 'none' : (t.underline ? 'underline' : 'none')};
     color: ${t.color || '#ffffff'};
@@ -1361,14 +1490,35 @@ function addText() {
 }
 
 function selectText(id) {
-  if (App.selectedTextId !== id) {
+  const prevId = App.selectedTextId;
+  if (prevId !== id) {
     App.textSelection = null;
+    // Exit selecting-text mode on previously selected element without destroying DOM
+    if (prevId) {
+      const prevEl = document.getElementById(`te-${prevId}`);
+      if (prevEl) {
+        prevEl.classList.remove('selected', 'selecting-text');
+        prevEl.querySelectorAll('.resize-handle').forEach(h => h.remove());
+        const prevContent = prevEl.querySelector('.text-content');
+        if (prevContent) prevContent.contentEditable = 'false';
+      }
+    }
   }
   App.selectedTextId = id;
-  renderTextOverlay();
+  const curEl = document.getElementById(`te-${id}`);
+  if (curEl) {
+    curEl.classList.add('selected');
+    if (!curEl.querySelector('.resize-handle')) {
+      attachResizeHandlesToElement(curEl, id);
+    }
+  } else {
+    renderTextOverlay();
+  }
   const t = App.texts.find(x => x.id === id);
   if (!t) { hideTextProperties(); return; }
-  showTextProperties(t);
+  if (prevId !== id) {
+    showTextProperties(t);
+  }
 }
 
 function deselectText() {
@@ -1389,27 +1539,84 @@ function deleteSelectedText() {
   toast('Teks dihapus', 'info');
 }
 
-function handleTextareaSelection(textarea) {
-  if (!App.selectedTextId || !textarea) return;
-  const start = textarea.selectionStart || 0;
-  const end   = textarea.selectionEnd   || 0;
-  if (start < end) {
-    App.textSelection = { id: App.selectedTextId, start, end, source: 'textarea' };
-  } else {
-    App.textSelection = null;
-  }
+// Track text selection in #prop-content or canvas .text-content automatically
+document.addEventListener('selectionchange', () => {
+  if (!App.selectedTextId) return;
   const t = App.texts.find(x => x.id === App.selectedTextId);
-  if (t) updateStyleButtonsForSelection(t);
+  if (!t) return;
+
+  const propEl   = document.getElementById('prop-content');
+  const canvasEl = document.querySelector(`#te-${t.id} .text-content`);
+
+  if (propEl) {
+    const off = getSelectionOffsetsInElement(propEl);
+    if (off) {
+      if (off.start < off.end) {
+        App.textSelection = { id: t.id, start: off.start, end: off.end, source: 'prop' };
+        updateStyleButtonsForSelection(t);
+        return;
+      } else if (document.activeElement === propEl) {
+        App.textSelection = null;
+        updateStyleButtonsForSelection(t);
+        return;
+      }
+    }
+  }
+  if (canvasEl) {
+    const off = getSelectionOffsetsInElement(canvasEl);
+    if (off) {
+      if (off.start < off.end) {
+        App.textSelection = { id: t.id, start: off.start, end: off.end, source: 'canvas' };
+        updateStyleButtonsForSelection(t);
+        return;
+      } else if (document.activeElement === canvasEl) {
+        App.textSelection = null;
+        updateStyleButtonsForSelection(t);
+        return;
+      }
+    }
+  }
+});
+
+function handleRichContentInput(el, source) {
+  if (!App.selectedTextId || !el) return;
+  const t = App.texts.find(x => x.id === App.selectedTextId);
+  if (!t) return;
+
+  const newPlain = (el.innerText || '').replace(/\r\n/g, '\n');
+  syncCharStylesOnEdit(t, t.content || '', newPlain);
+
+  if (source === 'prop') {
+    const canvasContent = document.querySelector(`#te-${t.id} .text-content`);
+    if (canvasContent) {
+      canvasContent.style.cssText = buildTextStyle(t);
+      canvasContent.innerHTML = renderStyledTextHTML(t);
+    }
+  } else if (source === 'canvas') {
+    const propEl = document.getElementById('prop-content');
+    if (propEl) {
+      propEl.innerHTML = renderStyledTextHTML(t);
+    }
+  }
+  renderCanvas();
 }
 
 function updateStyleButtonsForSelection(t) {
   if (!t) return;
   const styles = ensureCharStyles(t);
   let selStart = 0, selEnd = 0;
-  const ta = document.getElementById('prop-content');
-  if (ta && ta.selectionStart < ta.selectionEnd) {
-    selStart = ta.selectionStart;
-    selEnd   = ta.selectionEnd;
+
+  const propEl   = document.getElementById('prop-content');
+  const canvasEl = document.querySelector(`#te-${t.id} .text-content`);
+  const propOff   = propEl   ? getSelectionOffsetsInElement(propEl)   : null;
+  const canvasOff = canvasEl ? getSelectionOffsetsInElement(canvasEl) : null;
+
+  if (propOff && propOff.start < propOff.end) {
+    selStart = propOff.start;
+    selEnd   = propOff.end;
+  } else if (canvasOff && canvasOff.start < canvasOff.end) {
+    selStart = canvasOff.start;
+    selEnd   = canvasOff.end;
   } else if (App.textSelection && App.textSelection.id === t.id && App.textSelection.start < App.textSelection.end) {
     selStart = App.textSelection.start;
     selEnd   = App.textSelection.end;
@@ -1438,7 +1645,10 @@ function showTextProperties(t) {
   document.getElementById('btn-delete-text').classList.remove('hidden');
 
   const fs = Number(Number(t.fontSize || 24).toFixed(2));
-  document.getElementById('prop-content').value = t.content || '';
+  const propContentEl = document.getElementById('prop-content');
+  if (propContentEl) {
+    propContentEl.innerHTML = renderStyledTextHTML(t);
+  }
   document.getElementById('prop-form-name').value = t.formName || '';
   document.getElementById('prop-font').value = t.fontFamily || 'Inter';
   document.getElementById('prop-font-size').value = fs;
@@ -1545,15 +1755,25 @@ function toggleStyle(style) {
   const key = style === 'bold' ? 'b' : (style === 'italic' ? 'i' : 'u');
   const styles = ensureCharStyles(t);
 
-  // Check if user highlighted a specific portion of the text
-  const ta = document.getElementById('prop-content');
-  let selStart = 0, selEnd = 0;
-  if (ta && ta.selectionStart < ta.selectionEnd) {
-    selStart = ta.selectionStart;
-    selEnd   = ta.selectionEnd;
+  const propEl   = document.getElementById('prop-content');
+  const canvasEl = document.querySelector(`#te-${t.id} .text-content`);
+
+  let selStart = 0, selEnd = 0, source = 'prop';
+  const propOff   = propEl   ? getSelectionOffsetsInElement(propEl)   : null;
+  const canvasOff = canvasEl ? getSelectionOffsetsInElement(canvasEl) : null;
+
+  if (propOff && propOff.start < propOff.end) {
+    selStart = propOff.start;
+    selEnd   = propOff.end;
+    source   = 'prop';
+  } else if (canvasOff && canvasOff.start < canvasOff.end) {
+    selStart = canvasOff.start;
+    selEnd   = canvasOff.end;
+    source   = 'canvas';
   } else if (App.textSelection && App.textSelection.id === t.id && App.textSelection.start < App.textSelection.end) {
     selStart = App.textSelection.start;
     selEnd   = App.textSelection.end;
+    source   = App.textSelection.source || 'prop';
   }
 
   selStart = Math.max(0, Math.min(styles.length, selStart));
@@ -1566,7 +1786,6 @@ function toggleStyle(style) {
     for (let i = selStart; i < selEnd; i++) {
       styles[i][key] = newVal;
     }
-    // Keep text-level flag true only if all chars have that style
     t[style] = styles.length > 0 && styles.every(ch => !!ch[key]);
   } else {
     // Whole text formatting: toggle all characters
@@ -1576,20 +1795,25 @@ function toggleStyle(style) {
     styles.forEach(ch => { ch[key] = newVal; });
   }
 
-  const el = document.getElementById(`te-${t.id}`);
-  if (el) {
-    const contentEl = el.querySelector('.text-content');
-    if (contentEl) {
-      contentEl.style.cssText = buildTextStyle(t);
-      contentEl.innerHTML = renderStyledTextHTML(t);
-    }
+  // Update both Canvas DOM and Konten Teks box so both show the bolded word immediately
+  if (canvasEl) {
+    const wasEditable = canvasEl.contentEditable === 'true';
+    canvasEl.style.cssText = buildTextStyle(t);
+    if (wasEditable) canvasEl.contentEditable = 'true';
+    canvasEl.innerHTML = renderStyledTextHTML(t);
+  }
+  if (propEl) {
+    propEl.innerHTML = renderStyledTextHTML(t);
   }
 
-  // Restore highlight range in textarea so user sees selection preserved
-  if (ta && selStart < selEnd) {
-    ta.focus();
-    ta.setSelectionRange(selStart, selEnd);
-    App.textSelection = { id: t.id, start: selStart, end: selEnd, source: 'textarea' };
+  // Restore highlight range so selection stays active
+  if (selStart < selEnd) {
+    const targetEl = (source === 'canvas' && canvasEl) ? canvasEl : propEl;
+    if (targetEl) {
+      targetEl.focus();
+      setSelectionOffsetsInElement(targetEl, selStart, selEnd);
+    }
+    App.textSelection = { id: t.id, start: selStart, end: selEnd, source };
   }
 
   updateStyleButtonsForSelection(t);
@@ -2199,7 +2423,7 @@ document.addEventListener('keydown', e => {
   const onEditor       = document.getElementById('page-editor').classList.contains('active');
   const onClientEditor = document.getElementById('page-client-editor').classList.contains('active');
   const onAny = onEditor || onClientEditor;
-  const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA';
+  const isInput = e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable;
 
   // Space → pan mode (grab cursor)
   if (e.code === 'Space' && onAny && !isInput) {

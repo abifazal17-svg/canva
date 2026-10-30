@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=3">
 </head>
 
 <body>
@@ -397,12 +397,9 @@
             <!-- Content -->
             <div class="prop-group">
               <label class="prop-label">Konten Teks</label>
-              <textarea id="prop-content" class="prop-textarea" rows="3"
-                oninput="updateSelectedText('content', this.value)"
-                onselect="handleTextareaSelection(this)"
-                onmouseup="handleTextareaSelection(this)"
-                onkeyup="handleTextareaSelection(this)"></textarea>
-              <span class="prop-hint">Blok sebagian kata lalu klik <b>B</b> / <i>I</i> / <u>U</u> untuk format kata tersebut saja</span>
+              <div id="prop-content" class="prop-textarea" contenteditable="true" spellcheck="false"
+                oninput="handleRichContentInput(this, 'prop')"></div>
+              <span class="prop-hint">Blok sebagian kata (di sini atau double-klik di kanvas) lalu klik <b>B</b> / <i>I</i> / <u>U</u></span>
             </div>
 
             <!-- Form Label (Admin only) -->
@@ -790,7 +787,7 @@
     </div>
   </div>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 
 </html>
