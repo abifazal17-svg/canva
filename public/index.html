@@ -12,7 +12,7 @@
   <link
     href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap"
     rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=3">
+  <link rel="stylesheet" href="style.css?v=4">
 </head>
 
 <body>
@@ -141,6 +141,14 @@
           </svg>
           Font Manager
         </a>
+        <a href="#" class="nav-item" id="nav-database" onclick="adminShowDatabase()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <ellipse cx="12" cy="5" rx="9" ry="3" />
+            <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+            <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+          </svg>
+          Database & Backup
+        </a>
       </nav>
       <div class="sidebar-user">
         <div class="user-avatar" id="sidebar-avatar">A</div>
@@ -166,13 +174,23 @@
             <h2 class="page-title">Dashboard Design</h2>
             <p class="page-desc">Kelola semua master design Anda</p>
           </div>
-          <button class="btn-primary" onclick="openCreateDesignModal()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Buat Design Baru
-          </button>
+          <div style="display:flex;gap:10px;flex-wrap:wrap;">
+            <button class="btn-secondary" onclick="adminShowDatabase()" title="Backup & Ekspor Database">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <ellipse cx="12" cy="5" rx="9" ry="3" />
+                <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+              </svg>
+              Backup Database
+            </button>
+            <button class="btn-primary" onclick="openCreateDesignModal()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Buat Design Baru
+            </button>
+          </div>
         </div>
         <div id="admin-designs-grid" class="designs-grid">
           <div class="loading-state">
@@ -200,6 +218,142 @@
         <div id="fonts-grid" class="fonts-grid">
           <div class="loading-state">
             <div class="spinner"></div><span>Memuat font...</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Database & Backup Section -->
+      <section id="admin-database-section" class="hidden">
+        <div class="page-header">
+          <div>
+            <h2 class="page-title">Database & Backup</h2>
+            <p class="page-desc">Download, ekspor, dan pulihkan seluruh data saat berpindah server</p>
+          </div>
+          <button class="btn-secondary" onclick="loadDatabaseStats()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="23 4 23 10 17 10" />
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
+            </svg>
+            Refresh Status
+          </button>
+        </div>
+
+        <!-- Database Stats Row -->
+        <div class="db-stats-grid" id="db-stats-grid">
+          <div class="db-stat-card">
+            <span class="db-stat-label">Total Design</span>
+            <span class="db-stat-value" id="db-stat-designs">—</span>
+          </div>
+          <div class="db-stat-card">
+            <span class="db-stat-label">Total User & Client</span>
+            <span class="db-stat-value" id="db-stat-users">—</span>
+          </div>
+          <div class="db-stat-card">
+            <span class="db-stat-label">Design Shares</span>
+            <span class="db-stat-value" id="db-stat-shares">—</span>
+          </div>
+          <div class="db-stat-card">
+            <span class="db-stat-label">Data Form Client</span>
+            <span class="db-stat-value" id="db-stat-client-designs">—</span>
+          </div>
+          <div class="db-stat-card">
+            <span class="db-stat-label">Custom Font</span>
+            <span class="db-stat-value" id="db-stat-fonts">—</span>
+          </div>
+        </div>
+
+        <div class="db-info-banner" id="db-server-info">
+          Server Database: Memuat informasi...
+        </div>
+
+        <div class="db-panels-grid">
+          <!-- Export / Download Card -->
+          <div class="db-panel-card">
+            <div class="db-panel-header">
+              <div class="db-panel-icon db-icon-export">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="db-panel-title">Download & Ekspor Database</h3>
+                <p class="db-panel-subtitle">Simpan seluruh data ke perangkat Anda untuk cadangan atau migrasi server</p>
+              </div>
+            </div>
+
+            <div class="db-export-options">
+              <div class="db-option-box">
+                <div class="db-option-info">
+                  <strong>1. Full Backup JSON (<code>.json</code>) — Direkomendasikan</strong>
+                  <p>Mencakup seluruh tabel (Users, Designs + Gambar Base64, Shares, Data Form Client, serta File Font Kustom). Sangat mudah di-restore kembali langsung lewat panel Admin di server baru.</p>
+                </div>
+                <button class="btn-primary" onclick="downloadDatabaseBackup('json')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                    <polyline points="7 10 12 15 17 10" />
+                    <line x1="12" y1="15" x2="12" y2="3" />
+                  </svg>
+                  Download Backup (.JSON)
+                </button>
+              </div>
+
+              <div class="db-option-box">
+                <div class="db-option-info">
+                  <strong>2. Ekspor Dump MySQL (<code>.sql</code>) — Untuk phpMyAdmin / MySQL</strong>
+                  <p>Menghasilkan skrip SQL lengkap (<code>CREATE TABLE</code> + <code>INSERT INTO</code>) yang siap di-import langsung melalui phpMyAdmin, DBeaver, atau terminal MySQL pada hosting baru.</p>
+                </div>
+                <button class="btn-secondary" onclick="downloadDatabaseBackup('sql')">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <ellipse cx="12" cy="5" rx="9" ry="3" />
+                    <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" />
+                    <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
+                  </svg>
+                  Ekspor Database (.SQL)
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Import / Restore Card -->
+          <div class="db-panel-card">
+            <div class="db-panel-header">
+              <div class="db-panel-icon db-icon-import">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="17 8 12 3 7 8" />
+                  <line x1="12" y1="3" x2="12" y2="15" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="db-panel-title">Impor / Restore Database</h3>
+                <p class="db-panel-subtitle">Pulihkan data dari file backup (<code>.json</code> atau <code>.sql</code>) ke server ini</p>
+              </div>
+            </div>
+
+            <div class="form-group" style="margin-top:8px;">
+              <label>Pilih File Backup (<code>.json</code> atau <code>.sql</code>)</label>
+              <input type="file" id="db-restore-file" accept=".json,.sql" class="form-input" onchange="handleRestoreFileSelect(event)">
+              <div id="db-restore-file-info" class="db-file-info hidden"></div>
+            </div>
+
+            <div class="form-group">
+              <label>Mode Pemulihan (Restore Mode)</label>
+              <select id="db-restore-mode" class="form-input">
+                <option value="merge">Gabungkan & Perbarui (Merge / Aman — Data lama tidak dihapus)</option>
+                <option value="replace">Ganti Seluruh Database (Full Replace — Bersihkan & ganti dari backup)</option>
+              </select>
+            </div>
+
+            <button class="btn-primary btn-full" onclick="restoreDatabaseFromFile()" style="margin-top:8px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                <polyline points="17 8 12 3 7 8" />
+                <line x1="12" y1="3" x2="12" y2="15" />
+              </svg>
+              <span>Mulai Restore Database</span>
+            </button>
           </div>
         </div>
       </section>
@@ -787,7 +941,7 @@
     </div>
   </div>
 
-  <script src="app.js?v=3"></script>
+  <script src="app.js?v=4"></script>
 </body>
 
 </html>

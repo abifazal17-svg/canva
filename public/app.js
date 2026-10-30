@@ -379,6 +379,7 @@ function hideLoader() { document.getElementById('page-loader').classList.add('hi
 function adminShowDesigns() {
   document.getElementById('admin-designs-section').classList.remove('hidden');
   document.getElementById('admin-fonts-section').classList.add('hidden');
+  document.getElementById('admin-database-section')?.classList.add('hidden');
   setActiveNav('nav-designs');
   loadAdminDesigns();
 }
@@ -386,8 +387,152 @@ function adminShowDesigns() {
 function adminShowFonts() {
   document.getElementById('admin-designs-section').classList.add('hidden');
   document.getElementById('admin-fonts-section').classList.remove('hidden');
+  document.getElementById('admin-database-section')?.classList.add('hidden');
   setActiveNav('nav-fonts');
   loadFonts();
+}
+
+function adminShowDatabase() {
+  document.getElementById('admin-designs-section').classList.add('hidden');
+  document.getElementById('admin-fonts-section').classList.add('hidden');
+  document.getElementById('admin-database-section')?.classList.remove('hidden');
+  setActiveNav('nav-database');
+  loadDatabaseStats();
+}
+
+// ─── Database Backup, Export & Restore (Admin) ─────────────────────────────
+async function loadDatabaseStats() {
+  const infoEl = document.getElementById('db-server-info');
+  try {
+    const data = await api('GET', '/api/admin/db/stats');
+    const c = data.counts || {};
+    document.getElementById('db-stat-designs').textContent        = c.designs ?? 0;
+    document.getElementById('db-stat-users').textContent          = c.users ?? 0;
+    document.getElementById('db-stat-shares').textContent         = c.design_shares ?? 0;
+    document.getElementById('db-stat-client-designs').textContent = c.client_designs ?? 0;
+    document.getElementById('db-stat-fonts').textContent          = c.fonts ?? 0;
+    if (infoEl) {
+      infoEl.innerHTML = `Terhubung ke Database Server: <strong>${escHtml(data.host || '-')}</strong> &bull; Nama DB: <strong>${escHtml(data.database || '-')}</strong>`;
+    }
+  } catch (err) {
+    if (infoEl) infoEl.textContent = 'Gagal memuat status database: ' + err.message;
+  }
+}
+
+async function downloadDatabaseBackup(format = 'json') {
+  const isSql = format === 'sql';
+  const endpoint = isSql ? '/api/admin/db/export-sql' : '/api/admin/db/export-json';
+  showLoader(isSql ? 'Menyiapkan ekspor SQL database...' : 'Menyiapkan full backup database...');
+  try {
+    const res = await fetch(endpoint, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${App.token}` }
+    });
+    if (!res.ok) {
+      let errMsg = `HTTP ${res.status}`;
+      try { const j = await res.json(); errMsg = j.error || errMsg; } catch (_) {}
+      throw new Error(errMsg);
+    }
+    const blob = await res.blob();
+    const dateStr = new Date().toISOString().slice(0, 10);
+    const filename = isSql
+      ? `designcraft-database-${dateStr}.sql`
+      : `designcraft-backup-${dateStr}.json`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+
+    hideLoader();
+    toast(`File ${filename} berhasil diunduh!`, 'success');
+  } catch (err) {
+    hideLoader();
+    toast('Gagal mengunduh database: ' + err.message, 'error');
+  }
+}
+
+let selectedRestoreFile = null;
+function handleRestoreFileSelect(event) {
+  const file = event.target.files?.[0] || null;
+  selectedRestoreFile = file;
+  const infoEl = document.getElementById('db-restore-file-info');
+  if (!infoEl) return;
+  if (!file) {
+    infoEl.classList.add('hidden');
+    infoEl.textContent = '';
+    return;
+  }
+  const sizeKB = (file.size / 1024).toFixed(1);
+  const sizeStr = file.size > 1024 * 1024
+    ? `${(file.size / (1024 * 1024)).toFixed(2)} MB`
+    : `${sizeKB} KB`;
+  infoEl.textContent = `File siap di-restore: ${file.name} (${sizeStr})`;
+  infoEl.classList.remove('hidden');
+}
+
+async function restoreDatabaseFromFile() {
+  const fileInput = document.getElementById('db-restore-file');
+  const file = selectedRestoreFile || fileInput?.files?.[0];
+  if (!file) {
+    toast('Pilih file backup (.json atau .sql) terlebih dahulu', 'error');
+    return;
+  }
+
+  const mode = document.getElementById('db-restore-mode')?.value || 'merge';
+  const confirmMsg = mode === 'replace'
+    ? `PERINGATAN: Mode "Ganti Seluruh Database" akan menghapus data yang ada di server ini dan menggantinya dengan isi file "${file.name}". Lanjutkan?`
+    : `Pulihkan dan gabungkan data dari "${file.name}" ke database server ini?`;
+
+  if (!confirm(confirmMsg)) return;
+
+  showLoader('Memulihkan database ke server...');
+  try {
+    const rawText = await file.text();
+    const isSql = file.name.toLowerCase().endsWith('.sql') || rawText.trim().startsWith('--') || rawText.trim().toUpperCase().startsWith('SET ');
+
+    let payload;
+    if (isSql) {
+      payload = { mode, sql: rawText };
+    } else {
+      let parsed;
+      try {
+        parsed = JSON.parse(rawText);
+      } catch {
+        throw new Error('File JSON tidak valid atau rusak');
+      }
+      payload = { mode, backup: parsed };
+    }
+
+    const result = await api('POST', '/api/admin/db/import', payload);
+
+    // Update token & user if server refreshed admin credentials from backup
+    if (result.token && result.user) {
+      App.token = result.token;
+      App.user  = result.user;
+      localStorage.setItem('dc_token', result.token);
+      localStorage.setItem('dc_user', JSON.stringify(result.user));
+    }
+
+    hideLoader();
+    toast(result.message || 'Database berhasil dipulihkan!', 'success');
+
+    // Reset file input & refresh stats
+    selectedRestoreFile = null;
+    if (fileInput) fileInput.value = '';
+    const infoEl = document.getElementById('db-restore-file-info');
+    if (infoEl) infoEl.classList.add('hidden');
+
+    await loadDatabaseStats();
+    await loadAllFonts();
+  } catch (err) {
+    hideLoader();
+    toast('Gagal restore database: ' + err.message, 'error');
+  }
 }
 
 function setActiveNav(activeId) {

@@ -1173,3 +1173,141 @@ button { cursor: pointer; border: none; background: none; }
   transition: none;
 }
 /* cursor is set dynamically via JS (pointer when hovering form field text) */
+
+/* ─── Database & Backup Section ─────────────────────────────────────────── */
+.db-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.db-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.db-stat-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.db-stat-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  line-height: 1.1;
+}
+
+.db-info-banner {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: var(--text-secondary);
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+
+.db-panels-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 20px;
+}
+
+.db-panel-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.db-panel-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.db-panel-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.db-icon-export {
+  background: rgba(99, 102, 241, 0.16);
+  color: #818cf8;
+}
+
+.db-icon-import {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+}
+
+.db-panel-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 4px 0;
+}
+
+.db-panel-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.45;
+}
+
+.db-export-options {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.db-option-box {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.db-option-info strong {
+  display: block;
+  font-size: 13.5px;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.db-option-info p {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.db-file-info {
+  margin-top: 8px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  color: #34d399;
+  font-size: 12.5px;
+}
+
