@@ -585,6 +585,21 @@ button { cursor: pointer; border: none; background: none; }
   white-space: pre-wrap;
   word-break: break-word;
 }
+.text-element.selecting-text {
+  cursor: text;
+  user-select: text;
+  outline: 2px dashed var(--accent, #06b6d4);
+}
+.text-element.selecting-text .text-content {
+  pointer-events: auto !important;
+  user-select: text !important;
+  cursor: text;
+}
+.text-element.selecting-text .text-content::selection,
+.text-element.selecting-text .text-content span::selection {
+  background: rgba(99, 102, 241, 0.45);
+  color: #fff;
+}
 
 /* ─── Resize Handles (8 directions) ─────────────────────────────────────── */
 .resize-handle {

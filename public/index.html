@@ -398,7 +398,11 @@
             <div class="prop-group">
               <label class="prop-label">Konten Teks</label>
               <textarea id="prop-content" class="prop-textarea" rows="3"
-                oninput="updateSelectedText('content', this.value)"></textarea>
+                oninput="updateSelectedText('content', this.value)"
+                onselect="handleTextareaSelection(this)"
+                onmouseup="handleTextareaSelection(this)"
+                onkeyup="handleTextareaSelection(this)"></textarea>
+              <span class="prop-hint">Blok sebagian kata lalu klik <b>B</b> / <i>I</i> / <u>U</u> untuk format kata tersebut saja</span>
             </div>
 
             <!-- Form Label (Admin only) -->
@@ -445,11 +449,11 @@
             <div class="prop-group">
               <label class="prop-label">Gaya</label>
               <div class="style-btns">
-                <button class="style-btn" id="btn-bold" onclick="toggleStyle('bold')" title="Bold"><b>B</b></button>
-                <button class="style-btn" id="btn-italic" onclick="toggleStyle('italic')"
-                  title="Italic"><i>I</i></button>
-                <button class="style-btn" id="btn-underline" onclick="toggleStyle('underline')"
-                  title="Underline"><u>U</u></button>
+                <button class="style-btn" id="btn-bold" onmousedown="event.preventDefault()" onclick="toggleStyle('bold')" title="Bold (Ctrl+B)"><b>B</b></button>
+                <button class="style-btn" id="btn-italic" onmousedown="event.preventDefault()" onclick="toggleStyle('italic')"
+                  title="Italic (Ctrl+I)"><i>I</i></button>
+                <button class="style-btn" id="btn-underline" onmousedown="event.preventDefault()" onclick="toggleStyle('underline')"
+                  title="Underline (Ctrl+U)"><u>U</u></button>
               </div>
             </div>
 

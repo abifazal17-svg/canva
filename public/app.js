@@ -724,10 +724,17 @@ function renderClientCanvas(skipIndicators) {
   // Draw texts with client form values
   (d.texts || []).forEach(t => {
     let content = t.content || '';
+    let charStyles = t.charStyles;
     if (t.formName && App.clientFormValues[t.formName] !== undefined) {
-      content = App.clientFormValues[t.formName];
+      const newVal = App.clientFormValues[t.formName];
+      if (newVal !== content && Array.isArray(t.charStyles) && t.charStyles.length) {
+        const tempT = { ...t, charStyles: t.charStyles.map(s => ({ ...s })) };
+        syncCharStylesOnEdit(tempT, content, newVal);
+        charStyles = tempT.charStyles;
+      }
+      content = newVal;
     }
-    drawTextOnCanvas(ctx, { ...t, content });
+    drawTextOnCanvas(ctx, { ...t, content, charStyles });
 
     // Draw clickable dashed indicator for form-field texts (skip when downloading)
     if (t.formName && !skipIndicators) {
@@ -925,21 +932,183 @@ function drawGrid(ctx, w, h) {
   for (let y = 0; y < h; y += step) { ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(w, y); ctx.stroke(); }
 }
 
+// ─── Per-Character Style Helpers (Partial Bold / Italic / Underline) ─────
+App.textSelection = null; // { id, start, end, source: 'textarea'|'canvas' }
+
+function ensureCharStyles(t) {
+  const len = (t.content || '').length;
+  if (!Array.isArray(t.charStyles)) {
+    t.charStyles = [];
+  }
+  while (t.charStyles.length < len) {
+    t.charStyles.push({ b: !!t.bold, i: !!t.italic, u: !!t.underline });
+  }
+  if (t.charStyles.length > len) {
+    t.charStyles.length = len;
+  }
+  return t.charStyles;
+}
+
+function syncCharStylesOnEdit(t, oldStr, newStr) {
+  oldStr = String(oldStr || '');
+  newStr = String(newStr || '');
+  if (!Array.isArray(t.charStyles) || !t.charStyles.length) {
+    t.content = newStr;
+    ensureCharStyles(t);
+    return;
+  }
+  const oldStyles = t.charStyles;
+  let prefix = 0;
+  const minLen = Math.min(oldStr.length, newStr.length);
+  while (prefix < minLen && oldStr[prefix] === newStr[prefix]) {
+    prefix++;
+  }
+  let oldSuffix = oldStr.length;
+  let newSuffix = newStr.length;
+  while (oldSuffix > prefix && newSuffix > prefix && oldStr[oldSuffix - 1] === newStr[newSuffix - 1]) {
+    oldSuffix--;
+    newSuffix--;
+  }
+  const inheritStyle = prefix > 0
+    ? { ...oldStyles[prefix - 1] }
+    : (oldSuffix < oldStyles.length ? { ...oldStyles[oldSuffix] } : { b: !!t.bold, i: !!t.italic, u: !!t.underline });
+
+  const newStyles = [];
+  for (let i = 0; i < prefix; i++) newStyles.push({ ...oldStyles[i] });
+  for (let i = prefix; i < newSuffix; i++) newStyles.push({ ...inheritStyle });
+  for (let i = oldSuffix; i < oldStyles.length; i++) newStyles.push({ ...oldStyles[i] });
+
+  t.content = newStr;
+  t.charStyles = newStyles;
+}
+
+function renderStyledTextHTML(t) {
+  const text = t.content || 'Teks Baru';
+  if (!t.content || !Array.isArray(t.charStyles) || !t.charStyles.length) {
+    return escHtml(text);
+  }
+  const styles = ensureCharStyles(t);
+  let html = '';
+  let i = 0;
+  while (i < text.length) {
+    const st = styles[i] || { b: !!t.bold, i: !!t.italic, u: !!t.underline };
+    let j = i + 1;
+    while (
+      j < text.length &&
+      !!styles[j]?.b === !!st.b &&
+      !!styles[j]?.i === !!st.i &&
+      !!styles[j]?.u === !!st.u
+    ) {
+      j++;
+    }
+    const chunk = escHtml(text.slice(i, j));
+    const css = [
+      `font-weight:${st.b ? 'bold' : '400'}`,
+      `font-style:${st.i ? 'italic' : 'normal'}`,
+      `text-decoration:${st.u ? 'underline' : 'none'}`
+    ].join(';');
+    html += `<span data-start="${i}" data-end="${j}" style="${css}">${chunk}</span>`;
+    i = j;
+  }
+  return html;
+}
+
+function getStyledCharFont(t, b, i) {
+  return [
+    i ? 'italic' : '',
+    b ? 'bold' : '400',
+    `${t.fontSize || 24}px`,
+    `"${t.fontFamily || 'Inter'}", sans-serif`
+  ].filter(Boolean).join(' ');
+}
+
+function measureStyledSegment(ctx, t, chars) {
+  if (!chars || !chars.length) return 0;
+  let totalW = 0;
+  let idx = 0;
+  while (idx < chars.length) {
+    const cur = chars[idx];
+    let end = idx + 1;
+    let str = cur.ch;
+    while (end < chars.length && chars[end].b === cur.b && chars[end].i === cur.i) {
+      str += chars[end].ch;
+      end++;
+    }
+    ctx.font = getStyledCharFont(t, cur.b, cur.i);
+    totalW += ctx.measureText(str).width;
+    idx = end;
+  }
+  return totalW;
+}
+
+function wrapStyledText(ctx, t) {
+  const text = t.content || '';
+  const maxW = t.width || 300;
+  const hasCustomStyles = Array.isArray(t.charStyles) && t.charStyles.length > 0;
+
+  const chars = [];
+  for (let idx = 0; idx < text.length; idx++) {
+    const st = hasCustomStyles && t.charStyles[idx]
+      ? t.charStyles[idx]
+      : { b: !!t.bold, i: !!t.italic, u: !!t.underline };
+    chars.push({ ch: text[idx], b: !!st.b, i: !!st.i, u: !!st.u });
+  }
+
+  const paragraphs = [];
+  let curPara = [];
+  chars.forEach(c => {
+    if (c.ch === '\n') {
+      paragraphs.push(curPara);
+      curPara = [];
+    } else {
+      curPara.push(c);
+    }
+  });
+  paragraphs.push(curPara);
+
+  const resultLines = [];
+  paragraphs.forEach(para => {
+    if (!para.length) {
+      resultLines.push([]);
+      return;
+    }
+    const words = [];
+    let curWord = [];
+    para.forEach(c => {
+      if (c.ch === ' ') {
+        words.push({ chars: curWord, space: c });
+        curWord = [];
+      } else {
+        curWord.push(c);
+      }
+    });
+    words.push({ chars: curWord, space: null });
+
+    let currentLine = [];
+    words.forEach((wObj, wIdx) => {
+      const prefixSpace = (currentLine.length > 0 && wIdx > 0 && words[wIdx - 1].space)
+        ? [words[wIdx - 1].space]
+        : [];
+      const testLine = currentLine.concat(prefixSpace, wObj.chars);
+      if (measureStyledSegment(ctx, t, testLine) > maxW && currentLine.length > 0) {
+        resultLines.push(currentLine);
+        currentLine = [...wObj.chars];
+      } else {
+        currentLine = testLine;
+      }
+    });
+    if (currentLine.length > 0) resultLines.push(currentLine);
+  });
+
+  return resultLines;
+}
+
 function drawTextOnCanvas(ctx, t) {
   if (!t || !t.content) return;
   ctx.save();
   ctx.globalAlpha = t.opacity !== undefined ? t.opacity / 100 : 1;
-
-  const fontStyle = [
-    t.italic ? 'italic' : '',
-    t.bold ? 'bold' : '400',
-    `${t.fontSize || 24}px`,
-    `"${t.fontFamily || 'Inter'}", sans-serif`
-  ].filter(Boolean).join(' ');
-
-  ctx.font = fontStyle;
   ctx.fillStyle = t.color || '#ffffff';
-  ctx.textAlign = t.align || 'left';
+  ctx.textAlign = 'left';
 
   if (t.shadow) {
     ctx.shadowColor = t.shadowColor || '#000000';
@@ -953,22 +1122,46 @@ function drawTextOnCanvas(ctx, t) {
   const maxW = t.width || 300;
   const lineH = (t.fontSize || 24) * 1.3;
 
-  const lines = wrapText(ctx, t.content, maxW);
-  lines.forEach((line, i) => {
-    let drawX = x;
-    if (t.align === 'center') drawX = x + maxW / 2;
-    else if (t.align === 'right') drawX = x + maxW;
-    ctx.fillText(line, drawX, y + (t.fontSize || 24) + i * lineH);
+  const styledLines = wrapStyledText(ctx, t);
+  styledLines.forEach((lineChars, lineIdx) => {
+    if (!lineChars.length) return;
+    const lineW = measureStyledSegment(ctx, t, lineChars);
+    let curX = x;
+    if (t.align === 'center') curX = x + (maxW - lineW) / 2;
+    else if (t.align === 'right') curX = x + maxW - lineW;
 
-    if (t.underline) {
-      const lw = ctx.measureText(line).width;
-      const uy = y + (t.fontSize || 24) + i * lineH + 2;
-      let ux = x;
-      if (t.align === 'center') ux = x + maxW / 2 - lw / 2;
-      else if (t.align === 'right') ux = x + maxW - lw;
-      ctx.strokeStyle = t.color || '#fff';
-      ctx.lineWidth = Math.max(1, (t.fontSize || 24) / 16);
-      ctx.beginPath(); ctx.moveTo(ux, uy); ctx.lineTo(ux + lw, uy); ctx.stroke();
+    const drawY = y + (t.fontSize || 24) + lineIdx * lineH;
+
+    let idx = 0;
+    while (idx < lineChars.length) {
+      const cur = lineChars[idx];
+      let end = idx + 1;
+      let str = cur.ch;
+      while (
+        end < lineChars.length &&
+        lineChars[end].b === cur.b &&
+        lineChars[end].i === cur.i &&
+        lineChars[end].u === cur.u
+      ) {
+        str += lineChars[end].ch;
+        end++;
+      }
+      ctx.font = getStyledCharFont(t, cur.b, cur.i);
+      ctx.fillText(str, curX, drawY);
+      const segW = ctx.measureText(str).width;
+
+      if (cur.u) {
+        const uy = drawY + 2;
+        ctx.strokeStyle = t.color || '#fff';
+        ctx.lineWidth = Math.max(1, (t.fontSize || 24) / 16);
+        ctx.beginPath();
+        ctx.moveTo(curX, uy);
+        ctx.lineTo(curX + segW, uy);
+        ctx.stroke();
+      }
+
+      curX += segW;
+      idx = end;
     }
   });
 
@@ -1009,6 +1202,20 @@ function clearTextOverlay() {
   if (overlay) overlay.innerHTML = '';
 }
 
+function getSelectionOffsetsInElement(containerEl) {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  if (!containerEl.contains(range.commonAncestorContainer)) return null;
+  const preRange = document.createRange();
+  preRange.selectNodeContents(containerEl);
+  preRange.setEnd(range.startContainer, range.startOffset);
+  const start = preRange.toString().length;
+  const selectedLen = range.toString().length;
+  if (selectedLen <= 0) return null;
+  return { start, end: start + selectedLen };
+}
+
 function createTextElement(t) {
   const el = document.createElement('div');
   el.className = 'text-element' + (t.id === App.selectedTextId ? ' selected' : '');
@@ -1022,7 +1229,7 @@ function createTextElement(t) {
   const content = document.createElement('div');
   content.className = 'text-content';
   content.style.cssText = buildTextStyle(t);
-  content.textContent = t.content || 'Teks Baru';
+  content.innerHTML = renderStyledTextHTML(t);
   el.appendChild(content);
 
   if (t.id === App.selectedTextId) {
@@ -1034,8 +1241,33 @@ function createTextElement(t) {
     });
   }
 
+  // Double-click on canvas text → enable direct text highlighting on canvas
+  el.addEventListener('dblclick', e => {
+    if (e.target.classList.contains('resize-handle')) return;
+    e.stopPropagation();
+    el.classList.add('selecting-text');
+  });
+
+  el.addEventListener('mouseup', () => {
+    if (el.classList.contains('selecting-text')) {
+      const offsets = getSelectionOffsetsInElement(content);
+      if (offsets && offsets.start < offsets.end) {
+        App.textSelection = { id: t.id, start: offsets.start, end: offsets.end, source: 'canvas' };
+        const ta = document.getElementById('prop-content');
+        if (ta) {
+          ta.setSelectionRange(offsets.start, offsets.end);
+        }
+        updateStyleButtonsForSelection(t);
+      }
+    }
+  });
+
   el.addEventListener('mousedown', e => {
     if (e.target.classList.contains('resize-handle')) return;
+    // If already in canvas text-selection mode, allow user to drag-select text inside
+    if (el.classList.contains('selecting-text')) {
+      return;
+    }
     if (e.altKey) {
       // Alt + drag → duplicate then drag the copy
       e.preventDefault(); e.stopPropagation();
@@ -1051,12 +1283,13 @@ function createTextElement(t) {
 
 
 function buildTextStyle(t) {
+  const hasCharStyles = Array.isArray(t.charStyles) && t.charStyles.length > 0;
   return `
     font-family: "${t.fontFamily || 'Inter'}", sans-serif;
     font-size: ${t.fontSize || 24}px;
     font-weight: ${t.bold ? 'bold' : '400'};
     font-style: ${t.italic ? 'italic' : 'normal'};
-    text-decoration: ${t.underline ? 'underline' : 'none'};
+    text-decoration: ${hasCharStyles ? 'none' : (t.underline ? 'underline' : 'none')};
     color: ${t.color || '#ffffff'};
     text-align: ${t.align || 'left'};
     opacity: ${(t.opacity !== undefined ? t.opacity : 100) / 100};
@@ -1128,6 +1361,9 @@ function addText() {
 }
 
 function selectText(id) {
+  if (App.selectedTextId !== id) {
+    App.textSelection = null;
+  }
   App.selectedTextId = id;
   renderTextOverlay();
   const t = App.texts.find(x => x.id === id);
@@ -1137,6 +1373,7 @@ function selectText(id) {
 
 function deselectText() {
   App.selectedTextId = null;
+  App.textSelection = null;
   renderTextOverlay();
   hideTextProperties();
 }
@@ -1146,9 +1383,53 @@ function deleteSelectedText() {
   pushUndo();
   App.texts = App.texts.filter(t => t.id !== App.selectedTextId);
   App.selectedTextId = null;
+  App.textSelection = null;
   renderTextOverlay();
   hideTextProperties();
   toast('Teks dihapus', 'info');
+}
+
+function handleTextareaSelection(textarea) {
+  if (!App.selectedTextId || !textarea) return;
+  const start = textarea.selectionStart || 0;
+  const end   = textarea.selectionEnd   || 0;
+  if (start < end) {
+    App.textSelection = { id: App.selectedTextId, start, end, source: 'textarea' };
+  } else {
+    App.textSelection = null;
+  }
+  const t = App.texts.find(x => x.id === App.selectedTextId);
+  if (t) updateStyleButtonsForSelection(t);
+}
+
+function updateStyleButtonsForSelection(t) {
+  if (!t) return;
+  const styles = ensureCharStyles(t);
+  let selStart = 0, selEnd = 0;
+  const ta = document.getElementById('prop-content');
+  if (ta && ta.selectionStart < ta.selectionEnd) {
+    selStart = ta.selectionStart;
+    selEnd   = ta.selectionEnd;
+  } else if (App.textSelection && App.textSelection.id === t.id && App.textSelection.start < App.textSelection.end) {
+    selStart = App.textSelection.start;
+    selEnd   = App.textSelection.end;
+  }
+
+  const map = { bold: 'b', italic: 'i', underline: 'u' };
+  ['bold', 'italic', 'underline'].forEach(s => {
+    const key = map[s];
+    let isActive = false;
+    if (selStart < selEnd && styles.length > 0) {
+      const s0 = Math.max(0, Math.min(styles.length, selStart));
+      const s1 = Math.max(0, Math.min(styles.length, selEnd));
+      isActive = s1 > s0 && styles.slice(s0, s1).every(ch => !!ch[key]);
+    } else if (styles.length > 0) {
+      isActive = styles.every(ch => !!ch[key]);
+    } else {
+      isActive = !!t[s];
+    }
+    document.getElementById(`btn-${s}`)?.classList.toggle('active', isActive);
+  });
 }
 
 function showTextProperties(t) {
@@ -1176,10 +1457,8 @@ function showTextProperties(t) {
   document.getElementById('shadow-detail').style.display = t.shadow ? 'flex' : 'none';
   document.getElementById('shadow-detail').style.flexDirection = 'column';
 
-  // Style buttons
-  ['bold','italic','underline'].forEach(s => {
-    document.getElementById(`btn-${s}`).classList.toggle('active', !!t[s]);
-  });
+  // Style buttons (reflects current selection or whole text)
+  updateStyleButtonsForSelection(t);
 
   // Align buttons
   ['left','center','right'].forEach(a => {
@@ -1200,17 +1479,25 @@ function updateSelectedText(prop, value) {
   if (!App.selectedTextId) return;
   const t = App.texts.find(x => x.id === App.selectedTextId);
   if (!t) return;
-  t[prop] = value;
+
+  if (prop === 'content') {
+    syncCharStylesOnEdit(t, t.content || '', value);
+  } else {
+    t[prop] = value;
+  }
 
   const el = document.getElementById(`te-${t.id}`);
   if (el) {
     const content = el.querySelector('.text-content');
-    if (prop === 'content') content.textContent = value;
-    else if (prop === 'x') el.style.left = value + 'px';
+    if (prop === 'content') {
+      content.style.cssText = buildTextStyle(t);
+      content.innerHTML = renderStyledTextHTML(t);
+    } else if (prop === 'x') el.style.left = value + 'px';
     else if (prop === 'y') el.style.top = value + 'px';
     else {
       if (prop === 'fontSize') el.style.minHeight = value + 'px';
       content.style.cssText = buildTextStyle(t);
+      content.innerHTML = renderStyledTextHTML(t);
     }
   }
 
@@ -1253,10 +1540,59 @@ function syncColorFromHex(val) {
 function toggleStyle(style) {
   const t = App.texts.find(x => x.id === App.selectedTextId);
   if (!t) return;
-  t[style] = !t[style];
-  document.getElementById(`btn-${style}`).classList.toggle('active', t[style]);
+  pushUndo();
+
+  const key = style === 'bold' ? 'b' : (style === 'italic' ? 'i' : 'u');
+  const styles = ensureCharStyles(t);
+
+  // Check if user highlighted a specific portion of the text
+  const ta = document.getElementById('prop-content');
+  let selStart = 0, selEnd = 0;
+  if (ta && ta.selectionStart < ta.selectionEnd) {
+    selStart = ta.selectionStart;
+    selEnd   = ta.selectionEnd;
+  } else if (App.textSelection && App.textSelection.id === t.id && App.textSelection.start < App.textSelection.end) {
+    selStart = App.textSelection.start;
+    selEnd   = App.textSelection.end;
+  }
+
+  selStart = Math.max(0, Math.min(styles.length, selStart));
+  selEnd   = Math.max(0, Math.min(styles.length, selEnd));
+
+  if (selStart < selEnd) {
+    // Partial selection formatting: only toggle the highlighted characters!
+    const allActive = styles.slice(selStart, selEnd).every(ch => !!ch[key]);
+    const newVal = !allActive;
+    for (let i = selStart; i < selEnd; i++) {
+      styles[i][key] = newVal;
+    }
+    // Keep text-level flag true only if all chars have that style
+    t[style] = styles.length > 0 && styles.every(ch => !!ch[key]);
+  } else {
+    // Whole text formatting: toggle all characters
+    const allActive = styles.length > 0 ? styles.every(ch => !!ch[key]) : !!t[style];
+    const newVal = !allActive;
+    t[style] = newVal;
+    styles.forEach(ch => { ch[key] = newVal; });
+  }
+
   const el = document.getElementById(`te-${t.id}`);
-  if (el) el.querySelector('.text-content').style.cssText = buildTextStyle(t);
+  if (el) {
+    const contentEl = el.querySelector('.text-content');
+    if (contentEl) {
+      contentEl.style.cssText = buildTextStyle(t);
+      contentEl.innerHTML = renderStyledTextHTML(t);
+    }
+  }
+
+  // Restore highlight range in textarea so user sees selection preserved
+  if (ta && selStart < selEnd) {
+    ta.focus();
+    ta.setSelectionRange(selStart, selEnd);
+    App.textSelection = { id: t.id, start: selStart, end: selEnd, source: 'textarea' };
+  }
+
+  updateStyleButtonsForSelection(t);
   renderCanvas();
 }
 
@@ -1886,17 +2222,24 @@ document.addEventListener('keydown', e => {
     if (onEditor) { e.preventDefault(); editorUndo(); }
   }
 
-  // Ctrl+C → copy selected text element
-  if ((e.ctrlKey || e.metaKey) && e.key === 'c') {
-    if (onEditor && App.selectedTextId) {
-      // Only intercept if a text element is selected; else let OS copy work normally
+  // Ctrl+B / Ctrl+I / Ctrl+U → toggle Bold / Italic / Underline (for selection or whole text)
+  if ((e.ctrlKey || e.metaKey) && onEditor && App.selectedTextId) {
+    const k = e.key.toLowerCase();
+    if (k === 'b') { e.preventDefault(); toggleStyle('bold'); return; }
+    if (k === 'i') { e.preventDefault(); toggleStyle('italic'); return; }
+    if (k === 'u') { e.preventDefault(); toggleStyle('underline'); return; }
+  }
+
+  // Ctrl+C → copy selected text element (only when not inside input/textarea)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'c' && !isInput) {
+    if (onEditor && App.selectedTextId && !window.getSelection()?.toString()) {
       e.preventDefault();
       copySelectedText();
     }
   }
 
-  // Ctrl+V → paste copied text element
-  if ((e.ctrlKey || e.metaKey) && e.key === 'v') {
+  // Ctrl+V → paste copied text element (only when not inside input/textarea)
+  if ((e.ctrlKey || e.metaKey) && e.key === 'v' && !isInput) {
     if (onEditor && App.clipboard) {
       e.preventDefault();
       pasteText();
